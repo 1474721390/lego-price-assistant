@@ -1,0 +1,497 @@
+import os
+import re
+import json
+import requests
+import pandas as pd
+from datetime import datetime
+import streamlit as st
+import difflib
+import plotly.express as px
+from supabase import create_client
+
+# 从环境变量读取密钥
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY")
+MODEL_NAME = "glm-4-flash"
+
+if not SUPABASE_URL or not SUPABASE_KEY or not ZHIPU_API_KEY:
+    st.error("缺少环境变量！请在 Streamlit Cloud 中配置 SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY")
+    st.stop()
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# 初始化 session_state 变量（使用安全方式）
+if "parsed_data" not in st.session_state:
+    st.session_state["parsed_data"] = None
+if "raw_input" not in st.session_state:
+    st.session_state["raw_input"] = ""
+
+# ---------- 数据库操作（带缓存）----------
+@st.cache_data(ttl=60)
+def get_trend_data():
+    response = supabase.table("price_records").select("*").execute()
+    data = response.data
+    if not data:
+        return pd.DataFrame()
+    df = pd.DataFrame(data)
+    df['时间'] = pd.to_datetime(df['time'])
+    df['型号'] = df['model'].astype(str).str.replace(r'\.0$', '', regex=True)
+    df['价格'] = pd.to_numeric(df['price'], errors='coerce')
+    df = df.dropna(subset=['型号', '价格'])
+    df = df[df['型号'].str.match(r'^[1-9][0-9]{4}$')]
+    return df
+
+@st.cache_data(ttl=60)
+def get_all_price_records():
+    response = supabase.table("price_records").select("*").execute()
+    return pd.DataFrame(response.data)
+
+def get_last_price(model):
+    df = get_trend_data()
+    if df.empty:
+        return None
+    df_model = df[df['型号'] == model].sort_values('时间')
+    if df_model.empty:
+        return None
+    return df_model.iloc[-1]['价格']
+
+def save_to_supabase(data, raw_text):
+    records = []
+    for i, item in enumerate(data):
+        records.append({
+            "time": datetime.now().isoformat(),
+            "model": item.get('model'),
+            "price": item.get('price'),
+            "raw_text": raw_text if i == 0 else None
+        })
+    supabase.table("price_records").insert(records).execute()
+    st.cache_data.clear()
+    return len(data)
+
+def load_corrections():
+    response = supabase.table("corrections").select("*").execute()
+    data = response.data
+    return [{"original": d["original_text"], "corrected": d["corrected_data"]} for d in data]
+
+def save_correction(original_text, corrected_data):
+    supabase.table("corrections").insert({
+        "original_text": original_text,
+        "corrected_data": corrected_data
+    }).execute()
+    st.cache_data.clear()
+
+def find_similar_cases(text, threshold=0.8):
+    corrections = load_corrections()
+    similar = []
+    for case in corrections:
+        ratio = difflib.SequenceMatcher(None, text, case["original"]).ratio()
+        if ratio >= threshold:
+            similar.append(case)
+    return similar
+
+def update_price_record(record_id, new_model, new_price):
+    supabase.table("price_records").update({
+        "model": new_model,
+        "price": new_price
+    }).eq("id", record_id).execute()
+    st.cache_data.clear()
+
+def delete_price_record(record_id):
+    supabase.table("price_records").delete().eq("id", record_id).execute()
+    st.cache_data.clear()
+
+# ---------- 正则提取 ----------
+def extract_with_regex(line):
+    line = line.strip()
+    if not line:
+        return None, None
+    if '\t' in line:
+        parts = line.split('\t')
+        models = []
+        prices = []
+        for part in parts:
+            model_matches = re.findall(r'(?<![0-9])([1-9][0-9]{4})(?![0-9])', part)
+            models.extend(model_matches)
+            other_numbers = re.findall(r'\b(\d+)\b', part)
+            for num in other_numbers:
+                if len(num) != 5 or num[0] == '0':
+                    prices.append(int(num))
+        if models:
+            model = models[0]
+            price = prices[0] if prices else None
+            if price is not None and price >= 10:
+                return model, price
+        return None, None
+    model_matches = re.findall(r'(?<![0-9])([1-9][0-9]{4})(?![0-9])', line)
+    if not model_matches:
+        return None, None
+    model = model_matches[0]
+    all_numbers = re.findall(r'\b(\d+)\b', line)
+    price_candidates = []
+    for num in all_numbers:
+        if len(num) != 5 or num[0] == '0':
+            price_candidates.append(int(num))
+    price_match = re.search(r'^(\d+)', line)
+    if price_match:
+        num = price_match.group(1)
+        if len(num) != 5 or num[0] == '0':
+            price = int(num)
+            if price >= 10:
+                return model, price
+    price_match = re.search(r'(\d+)\s*收', line)
+    if price_match:
+        num = price_match.group(1)
+        if len(num) != 5 or num[0] == '0':
+            price = int(num)
+            if price >= 10:
+                return model, price
+    if price_candidates:
+        price = price_candidates[0]
+        if price >= 10:
+            return model, price
+    return None, None
+
+def preprocess_text(text):
+    lines = text.strip().split('\n')
+    filtered = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if re.search(r'\d', line) or "收" in line:
+            cleaned = re.sub(r'(普快|顺丰|好盒|压盒|包邮|顺丰发出|跨越最好|留底|加固|揽收|打包|山东|内蒙|广东|江苏|安徽|浙江|辽宁|吉林|黑龙江|河北|天津|山西|陕西|广西|云南|四川|贵州|福建|重庆|海南|北京|上海|天津|宁夏|青海|甘肃|新疆|西藏|内蒙古)', '', line)
+            if not re.search(r'\d', cleaned):
+                continue
+            filtered.append(cleaned)
+        elif len(line) > 20:
+            continue
+    return "\n".join(filtered)
+
+def parse_with_llm(text):
+    lines = text.strip().split('\n')
+    regex_results = []
+    remaining_lines = []
+    anomaly_alerts = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if not re.search(r'(?<![0-9])[1-9][0-9]{4}(?![0-9])', line):
+            continue
+        model, price = extract_with_regex(line)
+        if model is not None and price is not None:
+            last_price = get_last_price(model)
+            if last_price is not None and abs(price - last_price) > 100:
+                anomaly_alerts.append((model, price, last_price))
+                remaining_lines.append(line)
+            else:
+                regex_results.append({"model": model, "price": price})
+        else:
+            remaining_lines.append(line)
+    if anomaly_alerts:
+        for model, new_price, last_price in anomaly_alerts:
+            st.warning(f"⚠️ 型号 {model} 价格异常波动（从 {last_price} 变为 {new_price}，差值>100），已转模型复核。")
+    if not remaining_lines:
+        return regex_results
+
+    remaining_text = "\n".join(remaining_lines)
+    similar_cases = find_similar_cases(remaining_text, threshold=0.5)
+    few_shot_examples = ""
+    if similar_cases:
+        few_shot_examples = "\n参考以下类似情况的正确解析结果：\n"
+        for case in similar_cases[:3]:
+            few_shot_examples += f"输入：{case['original']}\n输出：{json.dumps(case['corrected'], ensure_ascii=False)}\n"
+    else:
+        few_shot_examples = "\n请直接解析。\n"
+
+    prompt = f"""你是一个乐高报价解析助手。从以下文本中提取出每个乐高产品的官方型号编号和价格。
+
+输入文本每行一个产品，行与行之间用换行符分隔。你需要识别所有行，并输出一个JSON数组，每个元素对应一行。
+
+要求：
+- 型号必须是5位数字，例如 10307、42115、21350。请只提取这些5位数字。
+- 价格是数字，可能带“元”、“收”、“块”等字，只需数字。
+- 忽略物流信息、数量、收件地址等。
+- 直接输出一个JSON数组，格式：[{{"model": "型号", "price": 价格}}]
+- 只输出JSON数组，不要输出任何其他文字。
+
+示例：
+输入："1180收 乐高 10320 1"
+输出：[{{"model": "10320", "price": 1180}}]
+
+输入："880压盒10358声波普快云南"
+输出：[{{"model": "10358", "price": 880}}]
+
+{few_shot_examples}
+
+现在请解析：
+{remaining_text}
+
+输出："""
+
+    headers = {
+        "Authorization": f"Bearer {ZHIPU_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": MODEL_NAME,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1,
+        "max_tokens": 8192
+    }
+    try:
+        response = requests.post(
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=120
+        )
+        if response.status_code == 200:
+            result = response.json()
+            content = result["choices"][0]["message"]["content"]
+            json_match = re.search(r'\[.*\]', content, re.DOTALL)
+            if json_match:
+                try:
+                    model_results = json.loads(json_match.group())
+                    return regex_results + model_results
+                except:
+                    return regex_results
+            else:
+                return regex_results
+        else:
+            st.error(f"智谱API调用失败：{response.status_code}")
+            return regex_results
+    except Exception as e:
+        st.error(f"智谱API调用出错：{e}")
+        return regex_results
+
+# ---------- 趋势预警 ----------
+def get_model_trend_change(model, n=5):
+    df = get_trend_data()
+    if df.empty:
+        return None
+    df_model = df[df['型号'] == model].sort_values('时间')
+    if len(df_model) < 2:
+        return None
+    recent = df_model.tail(n)
+    first_price = recent.iloc[0]['价格']
+    last_price = recent.iloc[-1]['价格']
+    return last_price - first_price
+
+def get_trend_alerts():
+    df = get_trend_data()
+    if df.empty:
+        return []
+    alerts = []
+    models = df['型号'].unique()
+    for model in models:
+        change = get_model_trend_change(model, n=5)
+        if change is None:
+            continue
+        if abs(change) > 5:
+            alerts.append((model, "上涨" if change > 0 else "下跌", change))
+    alerts.sort(key=lambda x: abs(x[2]), reverse=True)
+    return alerts
+
+def show_trend_chart(model):
+    df = get_trend_data()
+    if df.empty:
+        st.info("暂无数据")
+        return
+    df_model = df[df['型号'] == model].sort_values('时间')
+    if df_model.empty:
+        st.info(f"型号 {model} 暂无数据")
+        return
+    fig = px.line(df_model, x='时间', y='价格', title=f"型号 {model} 价格趋势",
+                  markers=True, labels={'时间': '时间', '价格': '价格'})
+    fig.update_traces(marker=dict(size=8), line=dict(width=2))
+    fig.update_layout(hovermode='x unified')
+    st.plotly_chart(fig, use_container_width=True)
+
+def get_model_list():
+    df = get_trend_data()
+    if df.empty:
+        return []
+    return sorted(df['型号'].unique())
+
+# ---------- 组合控件 ----------
+def single_model_selector(key_prefix, label="型号选择", options=None):
+    if options is None:
+        options = get_model_list()
+    opt_list = ["手动输入"] + options
+    selected = st.selectbox(label, opt_list, key=f"{key_prefix}_select")
+    if selected == "手动输入":
+        manual_input = st.text_input("请输入型号", key=f"{key_prefix}_manual")
+        return manual_input.strip()
+    else:
+        return selected
+
+# ---------- Streamlit UI ----------
+st.set_page_config(page_title="乐高报价助手", layout="wide")
+st.title("🧩 乐高报价助手")
+
+# 价格趋势预警
+alerts = get_trend_alerts()
+with st.expander(f"⚠️ 价格趋势预警（{len(alerts)}个型号）", expanded=False):
+    if alerts:
+        alert_models = sorted(set([m for m, _, _ in alerts]))
+        filter_model = single_model_selector("alert_filter", "筛选型号（可选）", options=alert_models)
+        filtered = alerts
+        if filter_model:
+            filtered = [(m, t, c) for (m, t, c) in alerts if m == filter_model]
+        if not filtered:
+            st.info("该型号无预警")
+        else:
+            for model, trend, change in filtered:
+                if trend == "上涨":
+                    st.warning(f"📈 型号 {model} 近期价格上涨 {change:.0f} 元")
+                else:
+                    st.error(f"📉 型号 {model} 近期价格下跌 {abs(change):.0f} 元")
+    else:
+        st.info("暂无价格预警")
+st.markdown("---")
+
+st.markdown("### 输入报价信息")
+user_input = st.text_area("把报价文字粘贴或输入到这里，支持多行（最多几百行）", height=300)
+
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("🔍 解析并记录"):
+        if not user_input.strip():
+            st.warning("请输入报价内容")
+        else:
+            with st.spinner("正在解析（正则+AI）..."):
+                try:
+                    parsed = parse_with_llm(user_input)
+                    if parsed:
+                        count = save_to_supabase(parsed, user_input)
+                        st.success(f"✅ 成功记录 {count} 条报价")
+                    else:
+                        st.warning("⚠️ 解析未识别到有效数据，请手动输入或纠错。")
+                        parsed = []
+                    st.session_state["parsed_data"] = parsed
+                    st.session_state["raw_input"] = user_input
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"运行出错：{str(e)}")
+                    st.exception(e)
+
+with col2:
+    if st.button("📊 查看所有型号"):
+        models = get_model_list()
+        if not models:
+            st.info("暂无数据")
+        else:
+            st.write("已记录的型号：", ", ".join(models))
+
+# 新报价的解析结果编辑
+if st.session_state.get("parsed_data") is not None:
+    st.markdown("---")
+    st.subheader("📝 解析结果（可编辑）")
+    st.caption("💡 提示：双击单元格可编辑数据，点击表格右下角“＋”可添加新行。修改后请点击下方“提交纠错”保存。")
+    parsed_data = st.session_state.get("parsed_data")
+    if not parsed_data:
+        df_edit = pd.DataFrame(columns=['model', 'price'])
+    else:
+        df_edit = pd.DataFrame(parsed_data)
+        if 'price' in df_edit.columns:
+            df_edit['price'] = pd.to_numeric(df_edit['price'], errors='coerce').fillna(0).astype(int)
+    
+    column_config = {
+        "model": st.column_config.TextColumn("型号", required=True),
+        "price": st.column_config.NumberColumn("价格", required=True, step=1)
+    }
+    edited_df = st.data_editor(df_edit, num_rows="dynamic", column_config=column_config, key="edit_table")
+    
+    if st.button("💾 提交纠错"):
+        corrected_data = edited_df.to_dict(orient='records')
+        corrected_data = [row for row in corrected_data if row.get('model') and row.get('price')]
+        if corrected_data:
+            for row in corrected_data:
+                row['price'] = int(row['price'])
+            save_correction(st.session_state.get("raw_input", ""), corrected_data)
+            save_to_supabase(corrected_data, st.session_state.get("raw_input", ""))
+            st.success("已学习并保存！下次遇到类似输入将自动参考此纠正。")
+            st.session_state["parsed_data"] = None
+            st.session_state["raw_input"] = ""
+            st.rerun()
+        else:
+            st.warning("未填写有效数据，未保存。")
+
+# 历史数据纠错
+st.markdown("---")
+st.subheader("✏️ 历史数据纠错")
+all_records_df = get_all_price_records()
+if all_records_df.empty:
+    st.info("暂无历史数据")
+else:
+    selected_model = single_model_selector("history", "选择要修改的型号")
+    if selected_model:
+        filtered_df = all_records_df[all_records_df['model'].astype(str) == selected_model]
+    else:
+        filtered_df = all_records_df
+    if filtered_df.empty:
+        st.info("没有匹配的记录")
+    else:
+        st.caption("以下为匹配的历史记录，可修改型号/价格，或勾选“删除”后点击“保存修改”。")
+        edit_data = filtered_df[['id', 'model', 'price', 'time']].copy()
+        edit_data['time'] = pd.to_datetime(edit_data['time']).dt.strftime('%Y-%m-%d %H:%M')
+        if '删除' not in edit_data.columns:
+            edit_data['删除'] = False
+        edited_df = st.data_editor(edit_data, 
+                                   column_config={
+                                       "id": st.column_config.NumberColumn("ID", disabled=True),
+                                       "time": st.column_config.TextColumn("时间", disabled=True),
+                                       "model": st.column_config.TextColumn("型号"),
+                                       "price": st.column_config.NumberColumn("价格", step=1),
+                                       "删除": st.column_config.CheckboxColumn("删除", default=False)
+                                   },
+                                   num_rows="dynamic",
+                                   key="history_edit_with_del")
+        if st.button("✅ 保存所有修改并删除选中记录"):
+            to_delete = edited_df[edited_df['删除'] == True]['id'].tolist()
+            for rid in to_delete:
+                delete_price_record(rid)
+            for idx, row in edited_df.iterrows():
+                if row['删除']:
+                    continue
+                record_id = row['id']
+                new_model = str(row['model']).strip()
+                new_price = int(row['price'])
+                original = all_records_df[all_records_df['id'] == record_id]
+                if not original.empty:
+                    old_model = str(original.iloc[0]['model']).strip()
+                    old_price = int(original.iloc[0]['price'])
+                    if new_model != old_model or new_price != old_price:
+                        update_price_record(record_id, new_model, new_price)
+            st.success("历史数据已更新！")
+            st.rerun()
+
+st.markdown("---")
+st.subheader("📈 价格趋势查询")
+query_model = single_model_selector("trend", "选择或输入型号")
+if query_model:
+    show_trend_chart(query_model)
+
+st.markdown("---")
+if st.button("📥 导出所有数据到本地"):
+    price_response = supabase.table("price_records").select("*").execute()
+    df_price = pd.DataFrame(price_response.data)
+    corr_response = supabase.table("corrections").select("*").execute()
+    df_corr = pd.DataFrame(corr_response.data)
+    from io import BytesIO
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_price.to_excel(writer, sheet_name="价格记录", index=False)
+        df_corr.to_excel(writer, sheet_name="纠错案例", index=False)
+    output.seek(0)
+    st.download_button(
+        label="点击下载 Excel 文件",
+        data=output,
+        file_name=f"lego_price_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+st.markdown("---")
+st.caption("数据云端存储，多用户共享。纠错案例自动学习。可随时导出本地备份。")
