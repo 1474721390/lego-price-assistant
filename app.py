@@ -323,28 +323,17 @@ with st.expander("📈 近7日 / 近30日涨幅排行", expanded=False):
 st.divider()
 
 # ------------------------------
-# 预警
+# ------------------------------
+# 预警（优化UI）
 # ------------------------------
 with st.expander("📊 价格波动预警", expanded=False):
     alerts = get_alerts()
-    up = [a for a in alerts if a["trend"]=="上涨"]
-    down = [a for a in alerts if a["trend"]=="下跌"]
-    c_up, c_down = st.columns(2)
-    with c_up:
-        st.subheader("📈 上涨")
-        for a in up:
-            if a["is_fav"]:
-                st.success(f"⭐ {a['model']} +{a['abs_diff']} → {a['last']}")
-            else:
-                st.success(f"📈 {a['model']} +{a['abs_diff']} → {a['last']}")
-    with c_down:
-        st.subheader("📉 下跌")
-        for a in down:
-            if a["is_fav"]:
-                st.error(f"⭐ {a['model']} -{a['abs_diff']} → {a['last']}")
-            else:
-                st.error(f"📉 {a['model']} -{a['abs_diff']} → {a['last']}")
-
+    for a in alerts:
+        star = "⭐" if a["is_fav"] else ""
+        if a["trend"] == "上涨":
+            st.success(f"{star} 型号：{a['model']} | 当前价：{a['last']} 元 | 涨价：+{a['abs_diff']} 元")
+        else:
+            st.error(f"{star} 型号：{a['model']} | 当前价：{a['last']} 元 | 跌价：-{a['abs_diff']} 元")
 st.divider()
 
 # ------------------------------
