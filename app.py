@@ -324,18 +324,22 @@ st.divider()
 
 # ------------------------------
 # ------------------------------
+# ------------------------------
+# ------------------------------
 # 预警（优化UI）
 # ------------------------------
 with st.expander("📊 价格波动预警", expanded=False):
     alerts = get_alerts()
     for a in alerts:
         star = "⭐" if a["is_fav"] else ""
-        if a["trend"] == "上涨":
-            st.success(f"{star} 型号：{a['model']} | 当前价：{a['last']} 元 | 涨价：+{a['abs_diff']} 元")
-        else:
-            st.error(f"{star} 型号：{a['model']} | 当前价：{a['last']} 元 | 跌价：-{a['abs_diff']} 元")
-st.divider()
+        price = a['last']
+        diff = a['abs_diff']
+        model = a['model']
 
+        if a["trend"] == "上涨":
+            st.success(f"{star} 型号：{model}　｜　当前价：{price} 元　｜　涨价：+{diff} 元")
+        else:
+            st.error(f"{star} 型号：{model}　｜　当前价：{price} 元　｜　跌价：-{diff} 元")
 # ------------------------------
 # 批量录入（已修复：价格可编辑）
 # ------------------------------
