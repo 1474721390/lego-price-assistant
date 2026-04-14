@@ -139,6 +139,25 @@ def get_price_trend(model: str, current_price: int) -> str:
     else:
         return "—"
 
+# ==================== 计算涨跌金额函数（新增） ====================
+def get_price_change(model: str, current_price: int) -> str:
+    """计算与上一次价格的差额，返回格式化的涨跌金额"""
+    df = get_clean_data()
+    past = df[df["型号"] == model]
+    if len(past) < 2:
+        return "—"  # 数据不足
+    
+    past_sorted = past.sort_values("时间", ascending=False)
+    last_price = past_sorted.iloc[1]["价格"]
+    diff = current_price - last_price
+    
+    if diff > 0:
+        return f"+¥{diff}"
+    elif diff < 0:
+        return f"-¥{abs(diff)}"
+    else:
+        return "±¥0"
+
 # ==================== 工具函数 ====================
 def is_price_abnormal(price):
     return price < 10 or price > 8000
@@ -402,7 +421,7 @@ with st.expander("📝 批量录入", expanded=True):
             if time_str and time_str[:10] == today_str:
                 today_set.add((row["model"], row["price"], str(row.get("remark", "")).strip()))
 
-        # ====== 修改点 1: 只保存状态为“有效”或“AI修正”的行 ======
+        # ====== 修改点 1: 只保存状态为"有效"或"AI修正"的行 ======
         save_list = []
         total_unique = len(unique_batch)
         status_text.text(f"开始校验 {total_unique} 条唯一报价...")
@@ -452,7 +471,7 @@ with st.expander("📝 批量录入", expanded=True):
                     "状态": "✅ 有效"
                 })
             
-            # ====== 关键修改: 只有“有效”或“AI修正”才加入保存列表 ======
+            # ====== 关键修改: 只有"有效"或"AI修正"才加入保存列表 ======
             if "✅ 有效" in res[-1]["状态"]:
                 save_list.append({
                     "time": datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S"),
@@ -477,13 +496,21 @@ with st.expander("📝 批量录入", expanded=True):
             st.rerun()
 
     if not st.session_state.parse_result.empty:
-        # ====== 添加趋势列 ======
+        # ====== 添加趋势列和涨跌金额列（关键修改） ======
         df_with_trend = st.session_state.parse_result.copy()
+        
+        # 趋势列（显示📈📉）
         df_with_trend["趋势"] = df_with_trend.apply(
             lambda row: get_price_trend(row["型号"], row["价格"]) if row["型号"] and row["价格"] > 0 else "—", axis=1
         )
-        # 重新排列列顺序
-        cols_order = ["型号", "价格", "趋势", "备注", "原始", "状态"]
+        
+        # 涨跌金额列（新增：显示具体金额）
+        df_with_trend["涨跌"] = df_with_trend.apply(
+            lambda row: get_price_change(row["型号"], row["价格"]) if row["型号"] and row["价格"] > 0 else "—", axis=1
+        )
+        
+        # 重新排列列顺序（新增"涨跌"列）
+        cols_order = ["型号", "价格", "趋势", "涨跌", "备注", "原始", "状态"]
         df_display = df_with_trend[cols_order]
 
         edited_df = st.data_editor(
@@ -492,6 +519,7 @@ with st.expander("📝 批量录入", expanded=True):
                 "型号": st.column_config.TextColumn("型号", required=True),
                 "价格": st.column_config.NumberColumn("价格", required=True, min_value=0),
                 "趋势": st.column_config.TextColumn("趋势", disabled=True),
+                "涨跌": st.column_config.TextColumn("涨跌", disabled=True),  # 新增列
                 "备注": st.column_config.TextColumn("备注"),
                 "原始": st.column_config.TextColumn("原始", disabled=True),
                 "状态": st.column_config.TextColumn("状态", disabled=True),
@@ -649,14 +677,34 @@ with tab2:
             st.caption("暂无数据")
 
 # ------------------------------
-# Tab 3: 价格波动预警
+# Tab 3: 价格波动预警 (已添加价格筛选)
 # ------------------------------
 with tab3:
+    st.markdown("#### 🔍 价格筛选")
+    col_min, col_max = st.columns(2)
+    with col_min:
+        min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_alert")
+    with col_max:
+        max_price_alert = st.number_input("最高价格", min_value=0, value=10000, step=10, key="max_price_alert")
+    
+    st.divider()
     st.markdown("#### 🚨 点击查看详情")
     alerts = get_alerts()
     if alerts:
-        up_list = [a for a in alerts if a["trend"] == "上涨"]
-        down_list = [a for a in alerts if a["trend"] == "下跌"]
+        # === 新增：根据筛选条件过滤预警 ===
+        filtered_alerts = []
+        for a in alerts:
+            current_price = a["last"]
+            if max_price_alert > 0:
+                if min_price_alert <= current_price <= max_price_alert:
+                    filtered_alerts.append(a)
+            else:
+                if current_price >= min_price_alert:
+                    filtered_alerts.append(a)
+        # ================================
+
+        up_list = [a for a in filtered_alerts if a["trend"] == "上涨"]
+        down_list = [a for a in filtered_alerts if a["trend"] == "下跌"]
         up_list.sort(key=lambda x: -x["abs_diff"])
         down_list.sort(key=lambda x: -x["abs_diff"])
         
