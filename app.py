@@ -119,6 +119,55 @@ def get_latest_history():
             }
     return latest
 
+# ==================== 优化版：批量计算趋势和涨跌 ====================
+def batch_calculate_trends_and_changes(df_clean, model_price_pairs):
+    """
+    批量计算多个型号的趋势和涨跌，避免重复查询数据库
+    model_price_pairs: [(model, current_price), ...]
+    返回: {model: {"trend": "📈", "change": "+¥50"}}
+    """
+    results = {}
+    
+    # 按型号分组，一次性获取所有历史数据
+    models = list(set(m for m, _ in model_price_pairs))
+    model_histories = {}
+    
+    for model in models:
+        past = df_clean[df_clean["型号"] == model]
+        if len(past) >= 2:
+            past_sorted = past.sort_values("时间", ascending=False)
+            model_histories[model] = past_sorted
+    
+    # 批量计算
+    for model, current_price in model_price_pairs:
+        if model not in model_histories:
+            results[model] = {"trend": "—", "change": "—"}
+            continue
+        
+        past_sorted = model_histories[model]
+        last_price = past_sorted.iloc[1]["价格"]
+        
+        # 趋势
+        if current_price > last_price:
+            trend = "📈"
+        elif current_price < last_price:
+            trend = "📉"
+        else:
+            trend = "—"
+        
+        # 涨跌金额
+        diff = current_price - last_price
+        if diff > 0:
+            change = f"+¥{diff}"
+        elif diff < 0:
+            change = f"-¥{abs(diff)}"
+        else:
+            change = "±¥0"
+        
+        results[model] = {"trend": trend, "change": change}
+    
+    return results
+
 # ==================== 修正后的趋势函数 ====================
 def get_price_trend(model: str, current_price: int) -> str:
     """获取价格趋势 emoji，与该型号上一次记录的价格对比"""
@@ -322,6 +371,9 @@ def save_batch_one_by_one(records):
         except Exception as e:
             print(f"保存失败: {e}")
             continue
+    # 优化：只在成功保存后标记缓存清除
+    if success_count > 0:
+        st.session_state.pending_cache_clear = True
     return success_count
 
 def update_record(id, data):
@@ -491,23 +543,45 @@ with st.expander("📝 批量录入", expanded=True):
             with st.spinner(f"正在保存 {len(save_list)} 条有效数据..."):
                 saved_count = save_batch_one_by_one(save_list)
             st.success(f"✅ 解析并自动保存 {saved_count} 条有效数据")
-            get_clean_data.clear()
-            st.cache_data.clear()
+            # 不在这里立即清除缓存，而是标记等待清除
             st.rerun()
 
     if not st.session_state.parse_result.empty:
-        # ====== 添加趋势列和涨跌金额列（关键修改） ======
+        # ====== 优化：批量计算趋势和涨跌 ======
         df_with_trend = st.session_state.parse_result.copy()
         
-        # 趋势列（显示📈📉）
-        df_with_trend["趋势"] = df_with_trend.apply(
-            lambda row: get_price_trend(row["型号"], row["价格"]) if row["型号"] and row["价格"] > 0 else "—", axis=1
-        )
+        # 准备需要计算的模型-价格对
+        valid_rows = df_with_trend[
+            (df_with_trend["型号"] != "") & 
+            (df_with_trend["价格"] > 0)
+        ]
         
-        # 涨跌金额列（新增：显示具体金额）
-        df_with_trend["涨跌"] = df_with_trend.apply(
-            lambda row: get_price_change(row["型号"], row["价格"]) if row["型号"] and row["价格"] > 0 else "—", axis=1
-        )
+        if not valid_rows.empty:
+            # 准备数据对
+            model_price_pairs = list(zip(
+                valid_rows["型号"].tolist(),
+                valid_rows["价格"].tolist()
+            ))
+            
+            # 批量计算（只查询一次数据库）
+            df_clean_for_calc = get_clean_data()  # 只调用一次
+            batch_results = batch_calculate_trends_and_changes(
+                df_clean_for_calc, 
+                model_price_pairs
+            )
+            
+            # 应用结果
+            df_with_trend["趋势"] = "—"
+            df_with_trend["涨跌"] = "—"
+            
+            for idx, row in valid_rows.iterrows():
+                model = row["型号"]
+                if model in batch_results:
+                    df_with_trend.at[idx, "趋势"] = batch_results[model]["trend"]
+                    df_with_trend.at[idx, "涨跌"] = batch_results[model]["change"]
+        else:
+            df_with_trend["趋势"] = "—"
+            df_with_trend["涨跌"] = "—"
         
         # 重新排列列顺序（新增"涨跌"列）
         cols_order = ["型号", "价格", "趋势", "涨跌", "备注", "原始", "状态"]
@@ -604,8 +678,7 @@ with st.expander("📝 批量录入", expanded=True):
                     st.success(f"✅ 成功保存 {saved_count} 条修正数据")
                     st.session_state.parse_result = pd.DataFrame()
                     st.session_state.original_parse = []
-                    get_clean_data.clear()
-                    st.cache_data.clear()
+                    # 不立即清除缓存，而是标记等待清除
                     st.rerun()
 
 
@@ -862,3 +935,9 @@ else:
 if st.session_state.scroll_to_bottom:
     st.components.v1.html(auto_scroll, height=0)
     st.session_state.scroll_to_bottom = False
+
+# 在页面末尾统一处理缓存清除
+if st.session_state.get("pending_cache_clear", False):
+    get_clean_data.clear()
+    st.cache_data.clear()
+    st.session_state.pending_cache_clear = False
