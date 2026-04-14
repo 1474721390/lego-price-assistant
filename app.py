@@ -387,130 +387,6 @@ def render_grid_buttons(items, columns=3, prefix=""):
                     st.session_state.scroll_to_bottom = True
                     st.rerun()
 
-# ==================== 全局概览表格专用函数 ====================
-def get_global_overview_data():
-    """获取所有型号的最新记录，用于全局概览表格"""
-    df = get_clean_data()
-    if df.empty:
-        return pd.DataFrame()
-    
-    # 获取每个型号的最新记录
-    latest_df = df.sort_values('时间').groupby('型号').tail(1)
-    latest_df = latest_df.reset_index(drop=True)
-    
-    # 添加趋势和涨跌列
-    overview_data = []
-    for _, row in latest_df.iterrows():
-        model = row["型号"]
-        price = row["价格"]
-        remark = str(row.get("remark", "")).strip()
-        time_str = row["原始时间"]
-        time_dt = row["时间"]
-        
-        # 计算趋势和涨跌
-        trend = get_price_trend(model, price)
-        change_str = get_price_change(model, price)
-        change_value = get_price_change_value(model, price)
-        
-        overview_data.append({
-            "型号": model,
-            "价格": price,
-            "趋势": trend,
-            "涨跌": change_str,
-            "涨跌数值": change_value,  # 用于排序
-            "备注": remark,
-            "时间": time_str,
-            "时间_dt": time_dt  # 用于排序
-        })
-    
-    return pd.DataFrame(overview_data)
-
-def apply_filters(df, filters):
-    """应用筛选条件"""
-    if not filters:
-        return df
-    
-    filtered_df = df.copy()
-    
-    # 型号筛选
-    if "型号" in filters and filters["型号"]:
-        filtered_df = filtered_df[filtered_df["型号"].isin(filters["型号"])]
-    
-    # 价格筛选
-    if "价格" in filters and filters["价格"]:
-        price_ranges = filters["价格"]
-        mask = pd.Series(False, index=filtered_df.index)
-        for prange in price_ranges:
-            if prange == "0-500":
-                mask |= (filtered_df["价格"] >= 0) & (filtered_df["价格"] < 500)
-            elif prange == "500-1000":
-                mask |= (filtered_df["价格"] >= 500) & (filtered_df["价格"] < 1000)
-            elif prange == "1000-3000":
-                mask |= (filtered_df["价格"] >= 1000) & (filtered_df["价格"] < 3000)
-            elif prange == "3000-5000":
-                mask |= (filtered_df["价格"] >= 3000) & (filtered_df["价格"] < 5000)
-            elif prange == "5000+":
-                mask |= (filtered_df["价格"] >= 5000)
-        filtered_df = filtered_df[mask]
-    
-    # 趋势筛选
-    if "趋势" in filters and filters["趋势"]:
-        filtered_df = filtered_df[filtered_df["趋势"].isin(filters["趋势"])]
-    
-    # 涨跌筛选（按涨跌数值的正负）
-    if "涨跌类型" in filters and filters["涨跌类型"]:
-        mask = pd.Series(False, index=filtered_df.index)
-        for change_type in filters["涨跌类型"]:
-            if change_type == "上涨":
-                mask |= (filtered_df["涨跌数值"] > 0)
-            elif change_type == "下跌":
-                mask |= (filtered_df["涨跌数值"] < 0)
-            elif change_type == "持平":
-                mask |= (filtered_df["涨跌数值"] == 0)
-        filtered_df = filtered_df[mask]
-    
-    # 备注筛选
-    if "备注" in filters and filters["备注"]:
-        mask = pd.Series(False, index=filtered_df.index)
-        for keyword in filters["备注"]:
-            mask |= filtered_df["备注"].str.contains(keyword, na=False)
-        filtered_df = filtered_df[mask]
-    
-    # 时间筛选（最近7天/30天/全部）
-    if "时间范围" in filters and filters["时间范围"]:
-        time_range = filters["时间范围"][0]
-        now = datetime.now(ZoneInfo("Asia/Shanghai"))
-        if time_range == "最近7天":
-            cutoff = now - timedelta(days=7)
-            filtered_df = filtered_df[filtered_df["时间_dt"] >= cutoff]
-        elif time_range == "最近30天":
-            cutoff = now - timedelta(days=30)
-            filtered_df = filtered_df[filtered_df["时间_dt"] >= cutoff]
-    
-    return filtered_df
-
-def apply_sorting(df, sort_column, ascending):
-    """应用排序"""
-    if sort_column == "时间":
-        return df.sort_values("时间_dt", ascending=ascending)
-    elif sort_column == "涨跌":
-        return df.sort_values("涨跌数值", ascending=ascending)
-    else:
-        return df.sort_values(sort_column, ascending=ascending)
-
-def paginate(df, page_size, current_page):
-    """分页（用于DataFrame）"""
-    start_idx = (current_page - 1) * page_size
-    end_idx = start_idx + page_size
-    return df.iloc[start_idx:end_idx]
-
-# ====== 新增：用于列表分页的函数 ======
-def paginate_list(items, page_size, current_page):
-    """分页（用于列表）"""
-    start_idx = (current_page - 1) * page_size
-    end_idx = start_idx + page_size
-    return items[start_idx:end_idx]
-
 # ==================== 界面 ====================
 st.title("🧩 乐高报价分析系统")
 
@@ -818,54 +694,117 @@ with tab2:
             st.caption("暂无数据")
 
 # ------------------------------
-# Tab 3: 价格波动预警 (已添加价格筛选)
+# Tab 3: 价格预警（修改为带价格区间筛选和翻页的表格）
 # ------------------------------
 with tab3:
-    st.markdown("#### 🔍 价格筛选")
+    st.markdown("#### 🔍 价格区间筛选")
+    
+    # 价格区间输入（默认0～50）
     col_min, col_max = st.columns(2)
     with col_min:
-        min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_alert")
+        min_price = st.number_input("最低价格", min_value=0, value=0, step=1, key="alert_min_price")
     with col_max:
-        max_price_alert = st.number_input("最高价格", min_value=0, value=10000, step=10, key="max_price_alert")
+        max_price = st.number_input("最高价格", min_value=0, value=50, step=1, key="alert_max_price")
     
     st.divider()
-    st.markdown("#### 🚨 点击查看详情")
-    alerts = get_alerts()
-    if alerts:
-        # === 新增：根据筛选条件过滤预警 ===
-        filtered_alerts = []
-        for a in alerts:
-            current_price = a["last"]
-            if max_price_alert > 0:
-                if min_price_alert <= current_price <= max_price_alert:
-                    filtered_alerts.append(a)
-            else:
-                if current_price >= min_price_alert:
-                    filtered_alerts.append(a)
-        # ================================
-
-        up_list = [a for a in filtered_alerts if a["trend"] == "上涨"]
-        down_list = [a for a in filtered_alerts if a["trend"] == "下跌"]
-        up_list.sort(key=lambda x: -x["abs_diff"])
-        down_list.sort(key=lambda x: -x["abs_diff"])
+    
+    # 获取数据并筛选
+    df_clean = get_clean_data()
+    if not df_clean.empty:
+        # 获取每个型号的最新记录
+        latest_df = df_clean.sort_values('时间').groupby('型号').tail(1)
         
-        col_up, col_down = st.columns(2)
-        with col_up:
-            st.markdown("##### 📈 涨价排行")
-            if up_list:
-                items = [(f"{a['model']} | +{a['abs_diff']}元", a['model']) for a in up_list]
-                render_grid_buttons(items, columns=1, prefix="alert_up")
-            else:
-                st.caption("无上涨预警")
-        with col_down:
-            st.markdown("##### 📉 跌价排行")
-            if down_list:
-                items = [(f"{a['model']} | -{a['abs_diff']}元", a['model']) for a in down_list]
-                render_grid_buttons(items, columns=1, prefix="alert_down")
-            else:
-                st.caption("无下跌预警")
+        # 应用价格筛选
+        if max_price > 0:
+            filtered_df = latest_df[(latest_df['价格'] >= min_price) & (latest_df['价格'] <= max_price)]
+        else:
+            filtered_df = latest_df[latest_df['价格'] >= min_price]
+        
+        if not filtered_df.empty:
+            # 准备显示数据
+            display_data = []
+            for _, row in filtered_df.iterrows():
+                model = row["型号"]
+                price = row["价格"]
+                remark = str(row.get("remark", "")).strip()
+                time_str = row["原始时间"]
+                
+                # 计算趋势和涨跌
+                trend = get_price_trend(model, price)
+                change = get_price_change(model, price)
+                
+                display_data.append({
+                    "型号": model,
+                    "价格": price,
+                    "趋势": trend,
+                    "涨跌": change,
+                    "备注": remark,
+                    "时间": time_str
+                })
+            
+            result_df = pd.DataFrame(display_data)
+            
+            # 排序（按时间倒序）
+            result_df = result_df.sort_values("时间", ascending=False).reset_index(drop=True)
+            
+            # 分页设置
+            PAGE_SIZE = 20
+            total_records = len(result_df)
+            total_pages = (total_records + PAGE_SIZE - 1) // PAGE_SIZE
+            
+            # 初始化页码
+            if 'alert_page' not in st.session_state:
+                st.session_state.alert_page = 1
+            
+            current_page = st.session_state.alert_page
+            
+            # 翻页按钮（首页/上一页/下一页）
+            col_first, col_prev, col_next, col_info = st.columns([1, 1, 1, 2])
+            
+            with col_first:
+                if st.button("⏮️ 首页", key="alert_first_page"):
+                    st.session_state.alert_page = 1
+                    st.rerun()
+            with col_prev:
+                if st.button("◀️ 上一页", key="alert_prev_page") and current_page > 1:
+                    st.session_state.alert_page -= 1
+                    st.rerun()
+            with col_next:
+                if st.button("▶️ 下一页", key="alert_next_page") and current_page < total_pages:
+                    st.session_state.alert_page += 1
+                    st.rerun()
+            with col_info:
+                st.markdown(f"<div style='text-align: right; line-height: 38px;'>"
+                           f"第 <b>{current_page}</b> / <b>{total_pages}</b> 页，共 <b>{total_records}</b> 条</div>",
+                           unsafe_allow_html=True)
+            
+            # 计算当前页数据
+            start_idx = (current_page - 1) * PAGE_SIZE
+            end_idx = min(start_idx + PAGE_SIZE, total_records)
+            page_data = result_df.iloc[start_idx:end_idx]
+            
+            # 显示表格
+            st.dataframe(
+                page_data,
+                column_config={
+                    "型号": st.column_config.TextColumn("🧱 型号", width="small"),
+                    "价格": st.column_config.NumberColumn("💰 价格", format="¥%d", width="small"),
+                    "趋势": st.column_config.TextColumn("📈 趋势", width="small"),
+                    "涨跌": st.column_config.TextColumn("📊 涨跌", width="small"),
+                    "备注": st.column_config.TextColumn("📦 备注", width="medium"),
+                    "时间": st.column_config.TextColumn("⏰ 时间", width="medium")
+                },
+                use_container_width=True,
+                hide_index=True,
+                height=400
+            )
+            
+            # 页码指示器
+            st.caption(f"显示第 {start_idx+1} - {end_idx} 条")
+        else:
+            st.info(f"在价格区间 ¥{min_price} - ¥{max_price} 内未找到数据")
     else:
-        st.info("暂无价格预警")
+        st.info("暂无数据")
 
 # ------------------------------
 # Tab 4: 价格区间筛选（替换原排序）
@@ -904,7 +843,7 @@ with tab4:
                 current_page = st.slider("页码", 1, total_pages, current_page, key="page_slider_tab4")
                 st.session_state.current_page_tab4 = current_page
 
-                paginated_items = paginate_list(items, page_size, current_page)
+                paginated_items = paginate(items, page_size, current_page)
                 render_grid_buttons(paginated_items, columns=2, prefix="filter_tab4")
                 st.caption(f"共 {total_items} 条数据，当前显示第 {current_page} 页，共 {total_pages} 页")
             else:
@@ -912,231 +851,6 @@ with tab4:
         else:
             st.info("暂无数据")
 
-
-# ------------------------------
-# 全局乐高价格概览表格（新增）
-# ------------------------------
-st.divider()
-st.subheader("📋 全局乐高价格概览")
-
-overview_df = get_global_overview_data()
-
-if not overview_df.empty:
-    # ====== 筛选功能 ======
-    st.markdown("#### 🔍 筛选条件")
-    
-    # 筛选按钮行
-    filter_cols = st.columns(6)
-    
-    # 型号筛选
-    with filter_cols[0]:
-        all_models_list = sorted(overview_df["型号"].unique().tolist())
-        selected_models = st.multiselect(
-            "🧱 型号",
-            options=all_models_list,
-            default=st.session_state.global_filters.get("型号", []),
-            key="filter_model",
-            placeholder="选择型号...",
-            label_visibility="visible"
-        )
-        if selected_models != st.session_state.global_filters.get("型号", []):
-            st.session_state.global_filters["型号"] = selected_models
-            st.session_state.global_current_page = 1
-    
-    # 价格范围筛选
-    with filter_cols[1]:
-        price_ranges = ["0-500", "500-1000", "1000-3000", "3000-5000", "5000+"]
-        selected_price_ranges = st.multiselect(
-            "💰 价格范围",
-            options=price_ranges,
-            default=st.session_state.global_filters.get("价格", []),
-            key="filter_price",
-            placeholder="选择价格范围...",
-            label_visibility="visible"
-        )
-        if selected_price_ranges != st.session_state.global_filters.get("价格", []):
-            st.session_state.global_filters["价格"] = selected_price_ranges
-            st.session_state.global_current_page = 1
-    
-    # 趋势筛选
-    with filter_cols[2]:
-        trend_options = ["📈", "📉", "—"]
-        selected_trends = st.multiselect(
-            "📈 趋势",
-            options=trend_options,
-            default=st.session_state.global_filters.get("趋势", []),
-            key="filter_trend",
-            placeholder="选择趋势...",
-            label_visibility="visible"
-        )
-        if selected_trends != st.session_state.global_filters.get("趋势", []):
-            st.session_state.global_filters["趋势"] = selected_trends
-            st.session_state.global_current_page = 1
-    
-    # 涨跌类型筛选
-    with filter_cols[3]:
-        change_types = ["上涨", "下跌", "持平"]
-        selected_change_types = st.multiselect(
-            "📊 涨跌类型",
-            options=change_types,
-            default=st.session_state.global_filters.get("涨跌类型", []),
-            key="filter_change_type",
-            placeholder="选择涨跌类型...",
-            label_visibility="visible"
-        )
-        if selected_change_types != st.session_state.global_filters.get("涨跌类型", []):
-            st.session_state.global_filters["涨跌类型"] = selected_change_types
-            st.session_state.global_current_page = 1
-    
-    # 备注筛选
-    with filter_cols[4]:
-        # 提取常见的备注关键词
-        all_remarks = overview_df["备注"].dropna().unique()
-        remark_keywords = set()
-        for remark in all_remarks:
-            if "全新" in remark:
-                remark_keywords.add("全新")
-            if "好盒" in remark or "压盒" in remark or "瑕疵" in remark or "盒损" in remark:
-                remark_keywords.add("盒况")
-            if "袋" in remark:
-                remark_keywords.add("袋")
-            if "官翻" in remark:
-                remark_keywords.add("官翻")
-        
-        selected_remarks = st.multiselect(
-            "📦 备注关键词",
-            options=sorted(remark_keywords),
-            default=st.session_state.global_filters.get("备注", []),
-            key="filter_remark",
-            placeholder="选择备注...",
-            label_visibility="visible"
-        )
-        if selected_remarks != st.session_state.global_filters.get("备注", []):
-            st.session_state.global_filters["备注"] = selected_remarks
-            st.session_state.global_current_page = 1
-    
-    # 时间范围筛选
-    with filter_cols[5]:
-        time_ranges = ["全部", "最近7天", "最近30天"]
-        selected_time_range = st.selectbox(
-            "⏰ 时间范围",
-            options=time_ranges,
-            index=time_ranges.index(st.session_state.global_filters.get("时间范围", ["全部"])[0]) if "时间范围" in st.session_state.global_filters else 0,
-            key="filter_time_range",
-            label_visibility="visible"
-        )
-        if [selected_time_range] != st.session_state.global_filters.get("时间范围", ["全部"]):
-            st.session_state.global_filters["时间范围"] = [selected_time_range]
-            st.session_state.global_current_page = 1
-    
-    # 应用筛选
-    filtered_overview_df = apply_filters(overview_df, st.session_state.global_filters)
-    
-    # ====== 排序功能 ======
-    st.markdown(f"#### 📊 数据表格（共 {len(filtered_overview_df)} 条记录）")
-    
-    # 排序按钮行
-    sort_cols = st.columns(6)
-    
-    sort_column_mapping = {
-        "🧱 型号": "型号",
-        "💰 价格": "价格",
-        "📈 趋势": "趋势",
-        "📊 涨跌": "涨跌",
-        "📦 备注": "备注",
-        "⏰ 时间": "时间"
-    }
-    
-    for i, (display_name, col_name) in enumerate(sort_column_mapping.items()):
-        with sort_cols[i]:
-            # 显示当前排序状态
-            if st.session_state.global_sort_column == col_name:
-                sort_icon = "▲" if st.session_state.global_sort_ascending else "▼"
-                btn_label = f"{display_name} {sort_icon}"
-            else:
-                btn_label = display_name
-            
-            if st.button(btn_label, key=f"sort_{col_name}"):
-                if st.session_state.global_sort_column == col_name:
-                    # 切换升降序
-                    st.session_state.global_sort_ascending = not st.session_state.global_sort_ascending
-                else:
-                    # 切换排序列，默认降序
-                    st.session_state.global_sort_column = col_name
-                    st.session_state.global_sort_ascending = False
-                st.rerun()
-    
-    # 应用排序
-    sorted_df = apply_sorting(filtered_overview_df, st.session_state.global_sort_column, st.session_state.global_sort_ascending)
-    
-    # ====== 分页功能 ======
-    total_records = len(sorted_df)
-    page_size_options = [10, 20, 50, 100]
-    
-    col_page1, col_page2, col_page3 = st.columns([2, 3, 2])
-    
-    with col_page1:
-        selected_page_size = st.selectbox(
-            "📄 每页显示",
-            options=page_size_options,
-            index=page_size_options.index(st.session_state.global_page_size),
-            key="page_size_selector"
-        )
-        if selected_page_size != st.session_state.global_page_size:
-            st.session_state.global_page_size = selected_page_size
-            st.session_state.global_current_page = 1
-    
-    total_pages = max(1, (total_records + st.session_state.global_page_size - 1) // st.session_state.global_page_size)
-    
-    with col_page2:
-        st.markdown(f"**共 {total_records} 条数据 | 当前第 {st.session_state.global_current_page} / {total_pages} 页**")
-    
-    with col_page3:
-        col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
-        with col_btn1:
-            if st.button("⏮️ 首页", key="first_page", disabled=(st.session_state.global_current_page == 1)):
-                st.session_state.global_current_page = 1
-                st.rerun()
-        with col_btn2:
-            if st.button("◀️ 上一页", key="prev_page", disabled=(st.session_state.global_current_page == 1)):
-                st.session_state.global_current_page -= 1
-                st.rerun()
-        with col_btn3:
-            if st.button("▶️ 下一页", key="next_page", disabled=(st.session_state.global_current_page == total_pages)):
-                st.session_state.global_current_page += 1
-                st.rerun()
-        with col_btn4:
-            if st.button("⏭️ 尾页", key="last_page", disabled=(st.session_state.global_current_page == total_pages)):
-                st.session_state.global_current_page = total_pages
-                st.rerun()
-    
-    # 应用分页
-    paginated_df = paginate(sorted_df, st.session_state.global_page_size, st.session_state.global_current_page)
-    
-    # ====== 显示表格 ======
-    # 准备显示数据（去掉内部用的列）
-    display_df = paginated_df[["型号", "价格", "趋势", "涨跌", "备注", "时间"]].copy()
-    
-    st.dataframe(
-        display_df,
-        column_config={
-            "型号": st.column_config.TextColumn("🧱 型号", width="small"),
-            "价格": st.column_config.NumberColumn("💰 价格", format="¥%d", width="small"),
-            "趋势": st.column_config.TextColumn("📈 趋势", width="small"),
-            "涨跌": st.column_config.TextColumn("📊 涨跌", width="small"),
-            "备注": st.column_config.TextColumn("📦 备注", width="medium"),
-            "时间": st.column_config.TextColumn("⏰ 时间", width="medium")
-        },
-        use_container_width=True,
-        hide_index=True,
-        height=400
-    )
-    
-    # 页码指示器
-    st.caption(f"显示第 {(st.session_state.global_current_page-1)*st.session_state.global_page_size+1} - {min(st.session_state.global_current_page*st.session_state.global_page_size, total_records)} 条")
-    
-else:
-    st.info("📦 暂无乐高价格数据，请先批量录入")
 
 # ------------------------------
 # 历史数据管理（保持在底部）
