@@ -1,4 +1,10 @@
 import os
+# ==================== 【新增】禁用自动重载和统计 ====================
+os.environ["STREAMLIT_SERVER_RUNONSAVE"] = "false"
+os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+os.environ["STREAMLIT_SERVER_FOLDERWATCHBLACKLIST"] = ".*"
+# ===================================================================
+
 import re
 import json
 import requests
@@ -40,6 +46,8 @@ class SessionStateManager:
             "current_page_tab4": 1,
             "parse_triggered": False,
             "save_triggered": False,
+            # 【新增】防抖控制变量
+            "_last_rerun_time": 0,
         }
         
         for key, value in defaults.items():
@@ -64,14 +72,28 @@ class SessionStateManager:
     
     @classmethod
     def safe_rerun(cls, reason=""):
-        """安全的页面刷新（使用 query_params 避免会话重新初始化）"""
-        if cls.ensure_initialized():
-            # 使用 query_params 触发刷新，而不是 st.rerun()
+        """【优化】安全的页面刷新（带防抖）"""
+        if not cls.ensure_initialized():
+            return
+        
+        current_time = time.time()
+        last_time = cls.safe_get("_last_rerun_time", 0)
+        
+        # 防抖：300ms 内只允许一次 rerun
+        if current_time - last_time < 0.3:
+            return
+        
+        cls.safe_set("_last_rerun_time", current_time)
+        
+        # 使用 query_params 触发刷新
+        try:
             st.query_params.update({
                 "refresh": str(time.time()),
                 "reason": reason
             })
             st.experimental_rerun()
+        except:
+            pass
 
 # ==================== 环境配置 ====================
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
