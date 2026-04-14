@@ -10,64 +10,33 @@ import plotly.express as px
 from supabase import create_client
 import time
 
-# ==================== 会话状态管理器（移除自动刷新） ====================
+# ==================== 会话状态管理器（修复初始化问题） ====================
 class SessionStateManager:
-    """只保留手动触发刷新，彻底移除自动刷新"""
-    _initialized = False
-    
-    @classmethod
-    def ensure_initialized(cls):
-        """确保会话状态完全初始化"""
-        if cls._initialized:
-            return True
-        
-        # 等待会话完全初始化（最多等待 0.5 秒）
-        max_wait = 0.5
-        start_time = time.time()
-        
-        while not hasattr(st, 'session_state') or st.session_state is None:
-            if time.time() - start_time > max_wait:
-                return False
-            time.sleep(0.01)
-        
-        # 初始化所有必要的状态
-        defaults = {
-            "selected_model": "",
-            "scroll_to_bottom": False,
-            "parse_result": pd.DataFrame(),
-            "original_parse": [],
-            "pending_cache_clear": False,
-            "current_page_tab4": 1,
-            "parse_triggered": False,
-            "save_triggered": False,
-            "manual_refresh": False,  # 仅用于手动刷新
-        }
-        
-        for key, value in defaults.items():
-            if key not in st.session_state:
-                st.session_state[key] = value
-        
-        cls._initialized = True
-        return True
+    """修复会话初始化问题，避免在会话未准备好时访问"""
     
     @classmethod
     def safe_get(cls, key, default=None):
-        """安全获取会话状态"""
-        if not cls.ensure_initialized():
-            return default
-        return st.session_state.get(key, default)
+        """安全获取会话状态，如果会话未初始化则返回默认值"""
+        try:
+            if hasattr(st, 'session_state') and st.session_state is not None:
+                return st.session_state.get(key, default)
+        except:
+            pass
+        return default
     
     @classmethod
     def safe_set(cls, key, value):
-        """安全设置会话状态"""
-        if cls.ensure_initialized():
-            st.session_state[key] = value
+        """安全设置会话状态，如果会话未初始化则忽略"""
+        try:
+            if hasattr(st, 'session_state') and st.session_state is not None:
+                st.session_state[key] = value
+        except:
+            pass
     
     @classmethod
     def manual_rerun(cls):
-        """【关键修改】只设置标志，不自动刷新"""
+        """手动刷新，只设置标志"""
         cls.safe_set("manual_refresh", True)
-        # 不再自动调用 st.experimental_rerun()
 
 # ==================== 环境配置 ====================
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -80,111 +49,149 @@ if not all([SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY]):
 
 st.set_page_config(page_title="乐高报价系统", layout="wide")
 
-# ==================== 初始化会话状态 ====================
-SessionStateManager.ensure_initialized()
-
-# 【删除】移除自动刷新检查
-# if SessionStateManager.safe_get("manual_refresh", False):
-#     SessionStateManager.safe_set("manual_refresh", False)
-#     st.experimental_rerun()
+# ==================== 初始化会话状态（安全方式） ====================
+# 使用 try-except 包裹，避免会话未初始化错误
+try:
+    if "initialized" not in st.session_state:
+        st.session_state.initialized = True
+        st.session_state.parse_result = pd.DataFrame()
+        st.session_state.original_parse = []
+        st.session_state.selected_model = ""
+        st.session_state.scroll_to_bottom = False
+        st.session_state.current_page_tab4 = 1
+        st.session_state.parse_triggered = False
+        st.session_state.save_triggered = False
+        st.session_state.manual_refresh = False
+except:
+    pass
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ==================== 收藏功能 ====================
 def get_favorites():
-    res = supabase.table("user_favorites").select("model").execute()
-    return {item["model"] for item in res.data} if res.data else set()
+    try:
+        res = supabase.table("user_favorites").select("model").execute()
+        return {item["model"] for item in res.data} if res.data else set()
+    except:
+        return set()
 
 def toggle_favorite(model):
-    favs = get_favorites()
-    if model in favs:
-        supabase.table("user_favorites").delete().eq("model", model).execute()
-    else:
-        supabase.table("user_favorites").insert({"model": model}).execute()
-    get_clean_data.clear()
-    SessionStateManager.manual_rerun()
+    try:
+        favs = get_favorites()
+        if model in favs:
+            supabase.table("user_favorites").delete().eq("model", model).execute()
+        else:
+            supabase.table("user_favorites").insert({"model": model}).execute()
+        get_clean_data.clear()
+        SessionStateManager.manual_rerun()
+    except:
+        pass
 
 # ==================== 心理价位 ====================
 def get_price_rules():
-    res = supabase.table("price_rules").select("model, buy, sell").execute()
-    rules = {}
-    for r in res.data:
-        rules[r["model"]] = {"buy": r["buy"], "sell": r["sell"]}
-    return rules
+    try:
+        res = supabase.table("price_rules").select("model, buy, sell").execute()
+        rules = {}
+        for r in res.data:
+            rules[r["model"]] = {"buy": r["buy"], "sell": r["sell"]}
+        return rules
+    except:
+        return {}
 
 def save_price_rule(model, buy, sell):
-    supabase.table("price_rules").upsert(
-        {"model": model, "buy": buy, "sell": sell}, on_conflict="model"
-    ).execute()
-    SessionStateManager.manual_rerun()
+    try:
+        supabase.table("price_rules").upsert(
+            {"model": model, "buy": buy, "sell": sell}, on_conflict="model"
+        ).execute()
+        SessionStateManager.manual_rerun()
+    except:
+        pass
 
 # ==================== 阈值设置 ====================
 def get_alert_threshold():
-    res = supabase.table("settings").select("alert_threshold").limit(1).execute()
-    return res.data[0]["alert_threshold"] if res.data else 10
+    try:
+        res = supabase.table("settings").select("alert_threshold").limit(1).execute()
+        return res.data[0]["alert_threshold"] if res.data else 10
+    except:
+        return 10
 
 def set_alert_threshold(v):
-    supabase.table("settings").upsert(
-        {"id": 1, "alert_threshold": v}, on_conflict="id"
-    ).execute()
-    SessionStateManager.manual_rerun()
+    try:
+        supabase.table("settings").upsert(
+            {"id": 1, "alert_threshold": v}, on_conflict="id"
+        ).execute()
+        SessionStateManager.manual_rerun()
+    except:
+        pass
 
 # ==================== 数据读取 ====================
 def fetch_all_records(table_name):
-    all_data = []
-    page_size = 1000
-    start = 0
-    while True:
-        res = supabase.table(table_name).select("*").range(start, start+page_size-1).execute()
-        if not res.data: break
-        all_data.extend(res.data)
-        start += page_size
-    return all_data
+    try:
+        all_data = []
+        page_size = 1000
+        start = 0
+        while True:
+            res = supabase.table(table_name).select("*").range(start, start+page_size-1).execute()
+            if not res.data: break
+            all_data.extend(res.data)
+            start += page_size
+        return all_data
+    except:
+        return []
 
 @st.cache_data(ttl=120, show_spinner=False)
 def get_clean_data():
-    all_data = fetch_all_records("price_records")
-    if not all_data:
+    try:
+        all_data = fetch_all_records("price_records")
+        if not all_data:
+            return pd.DataFrame()
+        df = pd.DataFrame(all_data)
+        df["原始时间"] = df["time"]
+        def parse_time(t):
+            try:
+                return pd.to_datetime(t, errors='coerce')
+            except:
+                return None
+        df["时间"] = df["time"].apply(parse_time)
+        df["型号"] = df["model"].astype(str).str.strip()
+        df["价格"] = pd.to_numeric(df["price"], errors="coerce")
+        df = df[df["型号"].str.match(r'^[1-9]\d{4}$', na=False)]
+        df = df.dropna(subset=["型号", "价格"])
+        df = df[(df["价格"]>0) & (df["价格"]<100000)]
+        return df
+    except:
         return pd.DataFrame()
-    df = pd.DataFrame(all_data)
-    df["原始时间"] = df["time"]
-    def parse_time(t):
-        try:
-            return pd.to_datetime(t, errors='coerce')
-        except:
-            return None
-    df["时间"] = df["time"].apply(parse_time)
-    df["型号"] = df["model"].astype(str).str.strip()
-    df["价格"] = pd.to_numeric(df["price"], errors="coerce")
-    df = df[df["型号"].str.match(r'^[1-9]\d{4}$', na=False)]
-    df = df.dropna(subset=["型号", "价格"])
-    df = df[(df["价格"]>0) & (df["价格"]<100000)]
-    return df
 
 @st.cache_data(ttl=120, show_spinner=False)
 def get_all_price_records():
-    all_data = fetch_all_records("price_records")
-    if not all_data:
+    try:
+        all_data = fetch_all_records("price_records")
+        if not all_data:
+            return pd.DataFrame()
+        df = pd.DataFrame(all_data)
+        return df
+    except:
         return pd.DataFrame()
-    df = pd.DataFrame(all_data)
-    return df
 
 @st.cache_data(ttl=60)
 def get_latest_history():
-    df = get_clean_data()
-    latest = {}
-    if df.empty:
+    try:
+        df = get_clean_data()
+        latest = {}
+        if df.empty:
+            return latest
+        for m in df["型号"].unique():
+            sub = df[df["型号"] == m].sort_values("时间", ascending=False)
+            if not sub.empty:
+                row = sub.iloc[0]
+                latest[m] = {
+                    "price": row["价格"],
+                    "remark": str(row.get("remark", "")).strip(),
+                    "time": row["时间"].isoformat() if row["时间"] else ""
+                }
         return latest
-    for m in df["型号"].unique():
-        sub = df[df["型号"] == m].sort_values("时间", ascending=False)
-        if not sub.empty:
-            row = sub.iloc[0]
-            latest[m] = {
-                "price": row["价格"],
-                "remark": str(row.get("remark", "")).strip(),
-                "time": row["时间"].isoformat() if row["时间"] else ""
-            }
-    return latest
+    except:
+        return {}
 
 # ==================== 优化版：批量计算趋势和涨跌 ====================
 def batch_calculate_trends_and_changes(df_clean, model_price_pairs):
@@ -238,41 +245,47 @@ def batch_calculate_trends_and_changes(df_clean, model_price_pairs):
 # ==================== 修正后的趋势函数 ====================
 def get_price_trend(model: str, current_price: int) -> str:
     """获取价格趋势 emoji，与该型号上一次记录的价格对比"""
-    df = get_clean_data()
-    past = df[df["型号"] == model]
-    if len(past) < 2:
-        return "—"  # 数据不足，无法判断趋势
-    
-    # === 关键修正：必须按时间倒序排序，确保最新在前 ===
-    past_sorted = past.sort_values("时间", ascending=False)
-    # 当前价格应为最新（past_sorted.iloc[0]），上一次为 past_sorted.iloc[1]
-    last_price = past_sorted.iloc[1]["价格"]
-    
-    if current_price > last_price:
-        return "📈"
-    elif current_price < last_price:
-        return "📉"
-    else:
+    try:
+        df = get_clean_data()
+        past = df[df["型号"] == model]
+        if len(past) < 2:
+            return "—"  # 数据不足，无法判断趋势
+        
+        # === 关键修正：必须按时间倒序排序，确保最新在前 ===
+        past_sorted = past.sort_values("时间", ascending=False)
+        # 当前价格应为最新（past_sorted.iloc[0]），上一次为 past_sorted.iloc[1]
+        last_price = past_sorted.iloc[1]["价格"]
+        
+        if current_price > last_price:
+            return "📈"
+        elif current_price < last_price:
+            return "📉"
+        else:
+            return "—"
+    except:
         return "—"
 
 # ==================== 计算涨跌金额函数（新增） ====================
 def get_price_change(model: str, current_price: int) -> str:
     """计算与上一次价格的差额，返回格式化的涨跌金额"""
-    df = get_clean_data()
-    past = df[df["型号"] == model]
-    if len(past) < 2:
-        return "—"  # 数据不足
-    
-    past_sorted = past.sort_values("时间", ascending=False)
-    last_price = past_sorted.iloc[1]["价格"]
-    diff = current_price - last_price
-    
-    if diff > 0:
-        return f"+¥{diff}"
-    elif diff < 0:
-        return f"-¥{abs(diff)}"
-    else:
-        return "±¥0"
+    try:
+        df = get_clean_data()
+        past = df[df["型号"] == model]
+        if len(past) < 2:
+            return "—"  # 数据不足
+        
+        past_sorted = past.sort_values("时间", ascending=False)
+        last_price = past_sorted.iloc[1]["价格"]
+        diff = current_price - last_price
+        
+        if diff > 0:
+            return f"+¥{diff}"
+        elif diff < 0:
+            return f"-¥{abs(diff)}"
+        else:
+            return "±¥0"
+    except:
+        return "—"
 
 # ==================== 工具函数 ====================
 def is_price_abnormal(price):
@@ -373,59 +386,68 @@ def extract_by_llm_full(line):
 
 def should_use_ai_fallback(model, price, line):
     """判断是否需要调用 AI 重新提取（而不是直接拒绝）"""
-    latest = get_latest_history()
-    
-    # 检查价格是否在合理范围内
-    if not (10 <= price <= 8000):
-        return True
-    
-    # 检查型号格式
-    if not (model and len(model) == 5 and model.isdigit() and model[0] != '0'):
-        return True
-    
-    # 检查价格变动是否过大（>200）
-    if model in latest:
-        last_price = latest[model]["price"]
-        if abs(price - last_price) > 200:
+    try:
+        latest = get_latest_history()
+        
+        # 检查价格是否在合理范围内
+        if not (10 <= price <= 8000):
             return True
-    
-    return False
+        
+        # 检查型号格式
+        if not (model and len(model) == 5 and model.isdigit() and model[0] != '0'):
+            return True
+        
+        # 检查价格变动是否过大（>200）
+        if model in latest:
+            last_price = latest[model]["price"]
+            if abs(price - last_price) > 200:
+                return True
+        
+        return False
+    except:
+        return True
 
 # ==================== 预警 ====================
 def get_alerts():
-    df = get_clean_data()
-    if df.empty: return []
-    favs = get_favorites()
-    threshold = get_alert_threshold()
-    alerts = []
-    for m in df["型号"].unique():
-        s = df[df["型号"]==m].sort_values("时间")
-        if len(s)<2: continue
-        first = s.iloc[0]["价格"]
-        last = s.iloc[-1]["价格"]
-        diff = last - first
-        if abs(diff) >= threshold:
-            alerts.append({
-                "model":m,"diff":diff,"abs_diff":abs(diff),"last":last,
-                "trend":"上涨"if diff>0 else"下跌","is_fav":m in favs
-            })
-    alerts.sort(key=lambda x: (-x["is_fav"], -x["abs_diff"]))
-    return alerts
+    try:
+        df = get_clean_data()
+        if df.empty: return []
+        favs = get_favorites()
+        threshold = get_alert_threshold()
+        alerts = []
+        for m in df["型号"].unique():
+            s = df[df["型号"]==m].sort_values("时间")
+            if len(s)<2: continue
+            first = s.iloc[0]["价格"]
+            last = s.iloc[-1]["价格"]
+            diff = last - first
+            if abs(diff) >= threshold:
+                alerts.append({
+                    "model":m,"diff":diff,"abs_diff":abs(diff),"last":last,
+                    "trend":"上涨"if diff>0 else"下跌","is_fav":m in favs
+                })
+        alerts.sort(key=lambda x: (-x["is_fav"], -x["abs_diff"]))
+        return alerts
+    except:
+        return []
 
 def get_trend(days=7):
-    df = get_clean_data()
-    if df.empty:
+    try:
+        df = get_clean_data()
+        if df.empty:
+            return []
+        trends = []
+        for m in df["型号"].unique():
+            s = df[df["型号"] == m].sort_values("时间")
+            if len(s) < 2:
+                continue
+            old = s.iloc[0]["价格"]
+            new = s.iloc[-1]["价格"]
+            diff = new - old
+            trends.append({"model": m, "diff": diff, "abs_diff": abs(diff), "last": new})
+        return sorted(trends, key=lambda x: -x["abs_diff"])
+    except:
         return []
-    trends = []
-    for m in df["型号"].unique():
-        s = df[df["型号"] == m].sort_values("时间")
-        if len(s) < 2:
-            continue
-        old = s.iloc[0]["价格"]
-        new = s.iloc[-1]["价格"]
-        diff = new - old
-        trends.append({"model": m, "diff": diff, "abs_diff": abs(diff), "last": new})
-    return sorted(trends, key=lambda x: -x["abs_diff"])
 
 # ==================== 增删改 ====================
 def save_batch_one_by_one(records):
@@ -488,19 +510,6 @@ def paginate(items, page_size, current_page):
     start_idx = (current_page - 1) * page_size
     end_idx = start_idx + page_size
     return items[start_idx:end_idx]
-
-# ==================== 智能缓存清除 ====================
-def smart_cache_clear():
-    """智能缓存清除，避免竞态条件"""
-    if SessionStateManager.safe_get("pending_cache_clear", False):
-        try:
-            # 尝试清除缓存
-            get_clean_data.clear()
-            st.cache_data.clear()
-            SessionStateManager.safe_set("pending_cache_clear", False)
-        except RuntimeError:
-            # 如果会话未初始化，延迟处理
-            pass
 
 # ==================== 界面 ====================
 st.title("🧩 乐高报价分析系统")
@@ -824,7 +833,7 @@ with tab3:
     with col_min:
         min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_alert")
     with col_max:
-        max_price_alert = st.number_input("最高价格", min_value=0, value=50, step=10, key="max_price_alert")
+        max_price_alert = st.number_input("最高价格", min_value=0, value=10000, step=10, key="max_price_alert")
     
     st.divider()
     st.markdown("#### 🚨 点击查看详情")
@@ -874,7 +883,7 @@ with tab4:
     with col_min:
         min_price = st.number_input("最低价格", min_value=0, value=0, step=10)
     with col_max:
-        max_price = st.number_input("最高价格", min_value=0, value=50, step=10)
+        max_price = st.number_input("最高价格", min_value=0, value=10000, step=10)
     
     if min_price >= max_price and max_price > 0:
         st.warning("最高价格应大于最低价格")
@@ -997,11 +1006,3 @@ if not df.empty:
             st.plotly_chart(fig, use_container_width=True)
 else:
     st.info("暂无数据")
-
-# 【删除】移除自动滚动和缓存清除
-# if SessionStateManager.safe_get("scroll_to_bottom", False):
-#     st.components.v1.html(auto_scroll, height=0)
-#     SessionStateManager.safe_set("scroll_to_bottom", False)
-
-# 【删除】移除自动缓存清除
-# smart_cache_clear()
