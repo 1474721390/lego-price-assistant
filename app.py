@@ -10,7 +10,7 @@ import plotly.express as px
 from supabase import create_client
 import time
 
-# ==================== 会话状态管理器（彻底移除自动刷新） ====================
+# ==================== 会话状态管理器（移除自动刷新） ====================
 class SessionStateManager:
     """只保留手动触发刷新，彻底移除自动刷新"""
     _initialized = False
@@ -65,9 +65,9 @@ class SessionStateManager:
     
     @classmethod
     def manual_rerun(cls):
-        """【关键修改】只允许手动触发刷新"""
+        """【关键修改】只设置标志，不自动刷新"""
         cls.safe_set("manual_refresh", True)
-        # 不再调用 st.experimental_rerun()，而是等待用户操作
+        # 不再自动调用 st.experimental_rerun()
 
 # ==================== 环境配置 ====================
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -83,10 +83,10 @@ st.set_page_config(page_title="乐高报价系统", layout="wide")
 # ==================== 初始化会话状态 ====================
 SessionStateManager.ensure_initialized()
 
-# 确保只有在初始化完成后才进行操作
-if SessionStateManager.safe_get("manual_refresh", False):
-    SessionStateManager.safe_set("manual_refresh", False)
-    st.experimental_rerun()
+# 【删除】移除自动刷新检查
+# if SessionStateManager.safe_get("manual_refresh", False):
+#     SessionStateManager.safe_set("manual_refresh", False)
+#     st.experimental_rerun()
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -519,20 +519,19 @@ with st.expander("📝 批量录入", expanded=True):
         res = []
         temp_items = []
         
-        progress_bar = st.progress(0, text="开始解析...")
-        status_text = st.empty()
+        # 【关键修改】使用静态提示，避免动态组件触发刷新
+        status_placeholder = st.empty()
+        status_placeholder.info(f"⏳ 正在解析 {total_lines} 行数据...")
         
         for idx, li in enumerate(lines):
-            progress = (idx + 1) / total_lines
-            progress_bar.progress(progress, text=f"正在解析第 {idx+1}/{total_lines} 行...")
             m, p, r = extract_by_regex(li)
             if not m or not p:
                 res.append({"型号":"","价格":0,"备注":"","原始":li,"状态":"❌ 解析失败"})
                 continue
             temp_items.append({"model": m, "price": p, "remark": r.strip(), "raw": li})
-        progress_bar.progress(1.0, text="解析完成，正在去重...")
-        status_text.text("解析完成，正在去重...")
-
+        
+        status_placeholder.info("⏳ 正在去重和校验...")
+        
         unique_batch = {}
         for item in temp_items:
             key = f"{item['model']}_{item['price']}_{item['remark']}"
@@ -551,10 +550,8 @@ with st.expander("📝 批量录入", expanded=True):
         # ====== 修改点 1: 只保存状态为"有效"或"AI修正"的行 ======
         save_list = []
         total_unique = len(unique_batch)
-        status_text.text(f"开始校验 {total_unique} 条唯一报价...")
+        status_placeholder.info(f"⏳ 正在校验 {total_unique} 条唯一报价...")
         for idx, (key, item) in enumerate(unique_batch.items()):
-            progress = (idx + 1) / total_unique if total_unique > 0 else 1
-            progress_bar.progress(progress, text=f"正在校验第 {idx+1}/{total_unique} 条...")
             m = item["model"]
             p = item["price"]
             r = item["remark"]
@@ -608,17 +605,17 @@ with st.expander("📝 批量录入", expanded=True):
                 })
                 today_set.add((final_model, final_price, final_remark))
 
-        progress_bar.empty()
-        status_text.empty()
+        status_placeholder.empty()
         SessionStateManager.safe_set("parse_result", pd.DataFrame(res))
         # ====== 保存原始解析结果，用于后续对比 ======
         SessionStateManager.safe_set("original_parse", res.copy())
 
         if save_list:
-            with st.spinner(f"正在保存 {len(save_list)} 条有效数据..."):
+            with st.spinner(f"⏳ 正在保存 {len(save_list)} 条有效数据..."):
                 saved_count = save_batch_one_by_one(save_list)
             st.success(f"✅ 解析并自动保存 {saved_count} 条有效数据")
-            SessionStateManager.manual_rerun()
+            # 【关键修改】解析完成后刷新页面
+            st.experimental_rerun()
 
     if not SessionStateManager.safe_get("parse_result", pd.DataFrame()).empty:
         # ====== 优化：批量计算趋势和涨跌 ======
@@ -752,7 +749,8 @@ with st.expander("📝 批量录入", expanded=True):
                     st.success(f"✅ 成功保存 {saved_count} 条修正数据")
                     SessionStateManager.safe_set("parse_result", pd.DataFrame())
                     SessionStateManager.safe_set("original_parse", [])
-                    SessionStateManager.manual_rerun()
+                    # 【关键修改】保存完成后刷新页面
+                    st.experimental_rerun()
 
 
 # --- 移除搜索框，将提醒阈值放入折叠面板 ---
@@ -826,7 +824,7 @@ with tab3:
     with col_min:
         min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_alert")
     with col_max:
-        max_price_alert = st.number_input("最高价格", min_value=0, value=50, step=10, key="max_price_alert")
+        max_price_alert = st.number_input("最高价格", min_value=0, value=10000, step=10, key="max_price_alert")
     
     st.divider()
     st.markdown("#### 🚨 点击查看详情")
@@ -876,7 +874,7 @@ with tab4:
     with col_min:
         min_price = st.number_input("最低价格", min_value=0, value=0, step=10)
     with col_max:
-        max_price = st.number_input("最高价格", min_value=0, value=50, step=10)
+        max_price = st.number_input("最高价格", min_value=0, value=10000, step=10)
     
     if min_price >= max_price and max_price > 0:
         st.warning("最高价格应大于最低价格")
@@ -1000,9 +998,10 @@ if not df.empty:
 else:
     st.info("暂无数据")
 
-if SessionStateManager.safe_get("scroll_to_bottom", False):
-    st.components.v1.html(auto_scroll, height=0)
-    SessionStateManager.safe_set("scroll_to_bottom", False)
+# 【删除】移除自动滚动和缓存清除
+# if SessionStateManager.safe_get("scroll_to_bottom", False):
+#     st.components.v1.html(auto_scroll, height=0)
+#     SessionStateManager.safe_set("scroll_to_bottom", False)
 
-# 在页面末尾统一处理缓存清除
-smart_cache_clear()
+# 【删除】移除自动缓存清除
+# smart_cache_clear()
