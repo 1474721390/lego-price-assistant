@@ -21,9 +21,8 @@ import streamlit as st
 import plotly.express as px
 from supabase import create_client
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed  # [优化3] 并发处理
 
-# ==================== 日志配置 [优化8] ====================
+# ==================== 日志配置 ====================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -57,9 +56,7 @@ class SessionStateManager:
             "save_triggered": False,
             "parsing_in_progress": False,
             "saving_in_progress": False,
-            # [优化4] 心理价位临时缓存
             "temp_price_rules": {},
-            # [优化7] 批量录入自动清空标记
             "clear_parse_result": False,
         }
         
@@ -97,7 +94,7 @@ SessionStateManager.ensure_initialized()
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ==================== [优化1] 数据层合并，减少重复查询 ====================
+# ==================== 数据层合并，减少重复查询 ====================
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_all_records_cached(table_name):
     """统一的数据拉取函数，带缓存"""
@@ -151,7 +148,7 @@ def get_all_price_records_df():
     all_data = fetch_all_records_cached("price_records")
     return pd.DataFrame(all_data) if all_data else pd.DataFrame()
 
-# ==================== 批量计算趋势和涨跌 [已优化] ====================
+# ==================== 批量计算趋势和涨跌 ====================
 def batch_calculate_trends_and_changes(df_clean, model_price_pairs):
     results = {}
     models = list(set(m for m, _ in model_price_pairs))
@@ -178,7 +175,7 @@ def batch_calculate_trends_and_changes(df_clean, model_price_pairs):
         results[model] = {"trend": trend, "change": change}
     return results
 
-# ==================== 收藏/心理价位/阈值（无大改动） ====================
+# ==================== 收藏/心理价位/阈值 ====================
 def get_favorites():
     res = supabase.table("user_favorites").select("model").execute()
     return {item["model"] for item in res.data} if res.data else set()
@@ -190,14 +187,13 @@ def toggle_favorite(model):
     else:
         supabase.table("user_favorites").insert({"model": model}).execute()
     get_clean_data.clear()
-    fetch_all_records_cached.clear()  # [优化1] 清除关联缓存
+    fetch_all_records_cached.clear()
 
 def get_price_rules():
     res = supabase.table("price_rules").select("model, buy, sell").execute()
     rules = {}
     for r in res.data:
         rules[r["model"]] = {"buy": r["buy"], "sell": r["sell"]}
-    # [优化4] 合并临时缓存
     temp = SessionStateManager.safe_get("temp_price_rules", {})
     rules.update(temp)
     return rules
@@ -206,11 +202,10 @@ def save_price_rule(model, buy, sell):
     supabase.table("price_rules").upsert(
         {"model": model, "buy": buy, "sell": sell}, on_conflict="model"
     ).execute()
-    # [优化4] 更新临时缓存并触发重绘
     temp = SessionStateManager.safe_get("temp_price_rules", {})
     temp[model] = {"buy": buy, "sell": sell}
     SessionStateManager.safe_set("temp_price_rules", temp)
-    st.rerun()  # [优化2] 仅在必要处使用 st.rerun()
+    st.rerun()
 
 def get_alert_threshold():
     res = supabase.table("settings").select("alert_threshold").limit(1).execute()
@@ -218,7 +213,7 @@ def get_alert_threshold():
 
 def set_alert_threshold(v):
     supabase.table("settings").upsert({"id": 1, "alert_threshold": v}, on_conflict="id").execute()
-    st.rerun()  # 阈值改变需刷新预警数据
+    st.rerun()
 
 # ==================== 正则提取与备注提取 ====================
 def extract_remark(line):
@@ -253,7 +248,7 @@ def extract_by_regex(line):
         return None, None, None
     return model, price, remark
 
-# ==================== [优化3] 批量AI调用 ====================
+# ==================== 批量AI调用 ====================
 def extract_by_llm_batch(lines):
     """批量发送多行文本给大模型解析，返回解析结果列表"""
     if not lines:
@@ -281,7 +276,6 @@ def extract_by_llm_batch(lines):
             if response.status_code == 200:
                 j = response.json()
                 content = j["choices"][0]["message"]["content"].strip()
-                # 提取JSON数组
                 json_match = re.search(r'\[.*\]', content, re.DOTALL)
                 if json_match:
                     results = json.loads(json_match.group())
@@ -306,7 +300,7 @@ def extract_by_llm_batch(lines):
     return [(None, None, "")] * len(lines)
 
 def should_use_ai_fallback(model, price, line):
-    """判断是否需要AI介入（逻辑不变）"""
+    """判断是否需要AI介入"""
     latest = get_latest_history()
     if not (10 <= price <= 8000):
         return True
@@ -415,7 +409,7 @@ def smart_cache_clear():
 # ==================== 主界面 ====================
 st.title("🧩 乐高报价分析系统")
 
-# --- [优化7] 自动清空解析结果逻辑 ---
+# --- 自动清空解析结果逻辑 ---
 if SessionStateManager.safe_get("clear_parse_result", False):
     SessionStateManager.safe_set("parse_result", pd.DataFrame())
     SessionStateManager.safe_set("original_parse", [])
@@ -436,25 +430,43 @@ with st.expander("📝 批量录入", expanded=True):
         else:
             lines = txt.strip().splitlines()
             total_lines = len(lines)
+            
+            # ===== 初始化结果列表，确保与行数一一对应 =====
             res = []
             temp_items = []
+            regex_results = []  # 存储每行的正则结果 (model, price, remark, raw)
             
             progress_bar = st.progress(0, text="开始解析...")
             status_text = st.empty()
             
-            # 第一遍正则扫描
-            regex_results = []
-            for li in lines:
+            # 第一遍：正则扫描，为每一行创建占位条目
+            for idx, li in enumerate(lines):
                 m, p, r = extract_by_regex(li)
                 regex_results.append((m, p, r, li))
+                
                 if not m or not p:
-                    res.append({"型号":"","价格":0,"备注":"","原始":li,"状态":"❌ 解析失败"})
+                    # 解析失败，直接添加失败条目
+                    res.append({
+                        "型号": "",
+                        "价格": 0,
+                        "备注": "",
+                        "原始": li,
+                        "状态": "❌ 解析失败"
+                    })
                 else:
+                    # 正则成功，先按有效处理（后续可能被AI修正）
+                    res.append({
+                        "型号": m,
+                        "价格": p,
+                        "备注": r.strip(),
+                        "原始": li,
+                        "状态": "✅ 有效"
+                    })
                     temp_items.append({"model": m, "price": p, "remark": r.strip(), "raw": li})
             
             progress_bar.progress(0.3, text="正则解析完成，检查可疑项...")
             
-            # [优化3] 收集需要AI的行索引
+            # 收集需要AI的行索引（仅针对正则成功的行）
             ai_indices = []
             for idx, (m, p, r, li) in enumerate(regex_results):
                 if m and p and should_use_ai_fallback(m, p, li):
@@ -462,16 +474,16 @@ with st.expander("📝 批量录入", expanded=True):
             
             if ai_indices:
                 progress_bar.progress(0.5, text=f"发现 {len(ai_indices)} 条可疑数据，正在批量调用AI...")
-                # 批量AI调用
                 ai_lines = [regex_results[i][3] for i in ai_indices]
                 ai_results = extract_by_llm_batch(ai_lines)
-                # 更新结果
+                
+                # 用AI结果更新对应的res条目和temp_items
                 for i, idx in enumerate(ai_indices):
                     ai_model, ai_price, ai_remark = ai_results[i]
+                    original_m, original_p, original_r, li = regex_results[idx]
+                    
                     if ai_model and ai_price:
-                        # 替换原有正则结果
-                        m_old, p_old, r_old, li = regex_results[idx]
-                        temp_items[idx] = {"model": ai_model, "price": ai_price, "remark": ai_remark, "raw": li}
+                        # AI成功，更新res
                         res[idx] = {
                             "型号": ai_model,
                             "价格": ai_price,
@@ -479,27 +491,16 @@ with st.expander("📝 批量录入", expanded=True):
                             "原始": li,
                             "状态": "✅ 有效（AI 修正）"
                         }
+                        # 更新temp_items中对应的条目（需要找到位置）
+                        for item in temp_items:
+                            if item["raw"] == li:
+                                item["model"] = ai_model
+                                item["price"] = ai_price
+                                item["remark"] = ai_remark
+                                break
                     else:
-                        # AI也失败了，标记为需手动
-                        m, p, r, li = regex_results[idx]
-                        res[idx] = {
-                            "型号": m,
-                            "价格": p,
-                            "备注": r,
-                            "原始": li,
-                            "状态": "⚠️ 需手动核实"
-                        }
-            else:
-                # 没有可疑项，直接标记为有效
-                for idx, (m, p, r, li) in enumerate(regex_results):
-                    if m and p:
-                        res[idx] = {
-                            "型号": m,
-                            "价格": p,
-                            "备注": r,
-                            "原始": li,
-                            "状态": "✅ 有效"
-                        }
+                        # AI也失败，标记为需手动
+                        res[idx]["状态"] = "⚠️ 需手动核实"
             
             progress_bar.progress(0.8, text="去重与当日检查...")
             
@@ -552,7 +553,6 @@ with st.expander("📝 批量录入", expanded=True):
                 with st.spinner(f"正在保存 {len(save_list)} 条有效数据..."):
                     saved_count = save_batch_one_by_one(save_list)
                 st.success(f"✅ 解析并自动保存 {saved_count} 条有效数据")
-                # [优化7] 保存后设置清空标记，下次渲染时自动清空表格
                 SessionStateManager.safe_set("clear_parse_result", True)
                 st.rerun()
         
@@ -594,7 +594,7 @@ with st.expander("📝 批量录入", expanded=True):
             },
             use_container_width=True,
             hide_index=True,
-            num_rows="fixed"  # [优化5] 改为fixed，避免动态添加行
+            num_rows="fixed"
         )
         
         total = len(parse_df)
@@ -724,7 +724,7 @@ with tab3:
     with col_min:
         min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_alert")
     with col_max:
-        max_price_alert = st.number_input("最高价格", min_value=0, value=50, step=10, key="max_price_alert")
+        max_price_alert = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_alert")
     st.divider()
     st.markdown("#### 🚨 点击查看详情")
     alerts = get_alerts()
@@ -821,7 +821,6 @@ if not df.empty:
             s = st.number_input("❤️ 可出价格", value=rule["sell"])
         if st.button("💾 保存心理价位"):
             save_price_rule(target, b, s)
-            # rerun 已在函数内执行
         
         model_data = df[df["型号"]==target].sort_values("时间", ascending=False)
         if not model_data.empty:
