@@ -1111,7 +1111,7 @@ if not overview_df.empty:
                 st.rerun()
     
     # 应用分页
-    paginated_df = paginate_dataframe(sorted_df, st.session_state.global_page_size, st.session_state.global_current_page)
+    paginated_df = paginate(sorted_df, st.session_state.global_page_size, st.session_state.global_current_page)
     
     # ====== 显示表格 ======
     # 准备显示数据（去掉内部用的列）
