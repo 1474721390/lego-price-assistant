@@ -1,10 +1,4 @@
 import os
-# ==================== 【新增】禁用自动重载和统计 ====================
-os.environ["STREAMLIT_SERVER_RUNONSAVE"] = "false"
-os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
-os.environ["STREAMLIT_SERVER_FOLDERWATCHBLACKLIST"] = ".*"
-# ===================================================================
-
 import re
 import json
 import requests
@@ -16,9 +10,9 @@ import plotly.express as px
 from supabase import create_client
 import time
 
-# ==================== 会话状态管理器（核心优化） ====================
+# ==================== 会话状态管理器（彻底移除自动刷新） ====================
 class SessionStateManager:
-    """统一的会话状态管理，避免竞态条件"""
+    """只保留手动触发刷新，彻底移除自动刷新"""
     _initialized = False
     
     @classmethod
@@ -46,8 +40,7 @@ class SessionStateManager:
             "current_page_tab4": 1,
             "parse_triggered": False,
             "save_triggered": False,
-            # 【新增】防抖控制变量
-            "_last_rerun_time": 0,
+            "manual_refresh": False,  # 仅用于手动刷新
         }
         
         for key, value in defaults.items():
@@ -71,29 +64,10 @@ class SessionStateManager:
             st.session_state[key] = value
     
     @classmethod
-    def safe_rerun(cls, reason=""):
-        """【优化】安全的页面刷新（带防抖）"""
-        if not cls.ensure_initialized():
-            return
-        
-        current_time = time.time()
-        last_time = cls.safe_get("_last_rerun_time", 0)
-        
-        # 防抖：300ms 内只允许一次 rerun
-        if current_time - last_time < 0.3:
-            return
-        
-        cls.safe_set("_last_rerun_time", current_time)
-        
-        # 使用 query_params 触发刷新
-        try:
-            st.query_params.update({
-                "refresh": str(time.time()),
-                "reason": reason
-            })
-            st.experimental_rerun()
-        except:
-            pass
+    def manual_rerun(cls):
+        """【关键修改】只允许手动触发刷新"""
+        cls.safe_set("manual_refresh", True)
+        # 不再调用 st.experimental_rerun()，而是等待用户操作
 
 # ==================== 环境配置 ====================
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -106,8 +80,13 @@ if not all([SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY]):
 
 st.set_page_config(page_title="乐高报价系统", layout="wide")
 
-# ==================== 初始化会话状态（核心优化） ====================
+# ==================== 初始化会话状态 ====================
 SessionStateManager.ensure_initialized()
+
+# 确保只有在初始化完成后才进行操作
+if SessionStateManager.safe_get("manual_refresh", False):
+    SessionStateManager.safe_set("manual_refresh", False)
+    st.experimental_rerun()
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -123,6 +102,7 @@ def toggle_favorite(model):
     else:
         supabase.table("user_favorites").insert({"model": model}).execute()
     get_clean_data.clear()
+    SessionStateManager.manual_rerun()
 
 # ==================== 心理价位 ====================
 def get_price_rules():
@@ -136,6 +116,7 @@ def save_price_rule(model, buy, sell):
     supabase.table("price_rules").upsert(
         {"model": model, "buy": buy, "sell": sell}, on_conflict="model"
     ).execute()
+    SessionStateManager.manual_rerun()
 
 # ==================== 阈值设置 ====================
 def get_alert_threshold():
@@ -146,6 +127,7 @@ def set_alert_threshold(v):
     supabase.table("settings").upsert(
         {"id": 1, "alert_threshold": v}, on_conflict="id"
     ).execute()
+    SessionStateManager.manual_rerun()
 
 # ==================== 数据读取 ====================
 def fetch_all_records(table_name):
@@ -499,7 +481,7 @@ def render_grid_buttons(items, columns=3, prefix=""):
                 if col.button(label, key=key, use_container_width=True):
                     SessionStateManager.safe_set("selected_model", model)
                     SessionStateManager.safe_set("scroll_to_bottom", True)
-                    SessionStateManager.safe_rerun("button_click")
+                    SessionStateManager.manual_rerun()
 
 # ==================== 分页辅助函数 ====================
 def paginate(items, page_size, current_page):
@@ -507,7 +489,7 @@ def paginate(items, page_size, current_page):
     end_idx = start_idx + page_size
     return items[start_idx:end_idx]
 
-# ==================== 智能缓存清除（核心优化） ====================
+# ==================== 智能缓存清除 ====================
 def smart_cache_clear():
     """智能缓存清除，避免竞态条件"""
     if SessionStateManager.safe_get("pending_cache_clear", False):
@@ -636,8 +618,7 @@ with st.expander("📝 批量录入", expanded=True):
             with st.spinner(f"正在保存 {len(save_list)} 条有效数据..."):
                 saved_count = save_batch_one_by_one(save_list)
             st.success(f"✅ 解析并自动保存 {saved_count} 条有效数据")
-            # 使用智能刷新，避免会话重新初始化
-            SessionStateManager.safe_rerun("parse_complete")
+            SessionStateManager.manual_rerun()
 
     if not SessionStateManager.safe_get("parse_result", pd.DataFrame()).empty:
         # ====== 优化：批量计算趋势和涨跌 ======
@@ -771,8 +752,7 @@ with st.expander("📝 批量录入", expanded=True):
                     st.success(f"✅ 成功保存 {saved_count} 条修正数据")
                     SessionStateManager.safe_set("parse_result", pd.DataFrame())
                     SessionStateManager.safe_set("original_parse", [])
-                    # 使用智能刷新
-                    SessionStateManager.safe_rerun("save_complete")
+                    SessionStateManager.manual_rerun()
 
 
 # --- 移除搜索框，将提醒阈值放入折叠面板 ---
@@ -785,7 +765,7 @@ with st.expander("⚙️ 设置", expanded=False):
         new_th = st.number_input("⚠️ 提醒阈值", min_value=1, value=th)
         if new_th != th:
             set_alert_threshold(new_th)
-            SessionStateManager.safe_rerun("threshold_change")
+            SessionStateManager.manual_rerun()
 
 df = get_clean_data()
 all_models = sorted(df["型号"].unique()) if not df.empty else []
@@ -950,7 +930,7 @@ if not df.empty:
         btn_txt = "⭐ 取消收藏" if isfav else "☆ 收藏"
         if st.button(btn_txt):
             toggle_favorite(target)
-            SessionStateManager.safe_rerun("favorite_toggle")
+            SessionStateManager.manual_rerun()
 
         rules = get_price_rules()
         rule = rules.get(target, {"buy":0, "sell":0})
@@ -962,7 +942,7 @@ if not df.empty:
         if st.button("💾 保存心理价位"):
             save_price_rule(target, b, s)
             st.success("✅ 已保存")
-            SessionStateManager.safe_rerun("price_rule_save")
+            SessionStateManager.manual_rerun()
 
         model_data = df[df["型号"]==target].sort_values("时间", ascending=False)
         if not model_data.empty:
@@ -1012,7 +992,7 @@ if not df.empty:
                     })
                 st.success("完成")
                 get_clean_data.clear()
-                SessionStateManager.safe_rerun("data_edit")
+                SessionStateManager.manual_rerun()
 
             st.subheader("价格走势")
             fig = px.line(model_data.sort_values("时间"), x="时间", y="价格", markers=True)
@@ -1024,5 +1004,5 @@ if SessionStateManager.safe_get("scroll_to_bottom", False):
     st.components.v1.html(auto_scroll, height=0)
     SessionStateManager.safe_set("scroll_to_bottom", False)
 
-# 在页面末尾统一处理缓存清除（使用智能清除）
+# 在页面末尾统一处理缓存清除
 smart_cache_clear()
