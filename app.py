@@ -782,7 +782,7 @@ if not df.empty:
     if st.session_state.selected_model in all_models:
         idx = all_models.index(st.session_state.selected_model) + 1
 
-    target = st.selectbox("选择型号", [""] + all_models, index=idx)
+    target = st.selectbox("选择乐高型号", [""] + all_models, index=idx)
     if target:
         st.session_state.selected_model = target
         isfav = target in favs
@@ -807,13 +807,53 @@ if not df.empty:
         if not model_data.empty:
             cur = model_data.iloc[0]["价格"]
             tip = ""
-            if s>0 and cur>=s:
+            if s > 0 and cur >= s:
                 tip = "❤️ 可出货"
-            elif b>0 and cur<=b:
+            elif b > 0 and cur <= b:
                 tip = "💚 可收货"
             if tip:
-                st.info(f"当前价 {cur} → {tip}")
+                st.info(f"当前价 ¥{cur} → {tip}")
 
+            # === 新增：乐高历史价格趋势表（带涨跌）===
+            st.subheader("📊 乐高历史价格趋势（含涨跌）")
+            
+            history_trend_data = []
+            for _, row in model_data.iterrows():
+                model = row["型号"]
+                price = row["价格"]
+                remark = str(row.get("remark", "")).strip()
+                time_str = row["原始时间"]
+                
+                # 复用已有函数计算趋势和涨跌
+                trend = get_price_trend(model, price)
+                change = get_price_change(model, price)
+                
+                history_trend_data.append({
+                    "型号": model,
+                    "价格": price,
+                    "趋势": trend,
+                    "涨跌": change,
+                    "备注": remark,
+                    "时间": time_str
+                })
+            
+            history_df = pd.DataFrame(history_trend_data)
+            st.dataframe(
+                history_df,
+                column_config={
+                    "型号": st.column_config.TextColumn("乐高型号"),
+                    "价格": st.column_config.NumberColumn("价格 (¥)"),
+                    "趋势": st.column_config.TextColumn("趋势"),
+                    "涨跌": st.column_config.TextColumn("涨跌金额"),
+                    "备注": st.column_config.TextColumn("备注（成色/箱说等）"),
+                    "时间": st.column_config.TextColumn("记录时间")
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+            # ======================================
+
+            # === 原有可编辑表格（用于删除/修改）===
             def format_date(t_str):
                 if t_str and len(t_str) >= 10:
                     return t_str[:10]
@@ -821,16 +861,17 @@ if not df.empty:
 
             show = model_data[["id", "原始时间", "型号", "价格", "remark"]].copy()
             show["日期"] = show["原始时间"].apply(format_date)
-            show.rename(columns={"remark":"备注"}, inplace=True)
+            show.rename(columns={"remark": "备注"}, inplace=True)
             show.insert(0, "删除", False)
 
+            st.subheader("✏️ 编辑/删除历史记录")
             ed_table = st.data_editor(
                 show,
                 column_config={
                     "删除": st.column_config.CheckboxColumn("删除"),
-                    "型号": st.column_config.TextColumn("型号"),
-                    "价格": st.column_config.NumberColumn("价格"),
-                    "备注": st.column_config.TextColumn("备注"),
+                    "型号": st.column_config.TextColumn("乐高型号"),
+                    "价格": st.column_config.NumberColumn("价格 (¥)"),
+                    "备注": st.column_config.TextColumn("备注（成色/箱说等）"),
                     "日期": st.column_config.TextColumn("日期", disabled=True),
                     "id": st.column_config.NumberColumn("id", disabled=True),
                     "原始时间": st.column_config.TextColumn("原始时间", disabled=True),
@@ -840,7 +881,7 @@ if not df.empty:
             )
 
             if st.button("保存修改 & 删除"):
-                del_ids = ed_table[ed_table["删除"]==True]["id"].tolist()
+                del_ids = ed_table[ed_table["删除"] == True]["id"].tolist()
                 for did in del_ids:
                     delete_record(did)
                 for _, row in ed_table[~ed_table["删除"]].iterrows():
@@ -849,15 +890,22 @@ if not df.empty:
                         "price": int(row["价格"]),
                         "remark": str(row["备注"]).strip()
                     })
-                st.success("完成")
+                st.success("✅ 修改已保存")
                 get_clean_data.clear()
                 st.rerun()
 
-            st.subheader("价格走势")
-            fig = px.line(model_data.sort_values("时间"), x="时间", y="价格", markers=True)
+            st.subheader("📈 价格走势")
+            fig = px.line(
+                model_data.sort_values("时间"),
+                x="时间",
+                y="价格",
+                markers=True,
+                title=f"{target} 历史价格走势"
+            )
+            fig.update_layout(yaxis_title="价格 (¥)", xaxis_title="时间")
             st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("暂无数据")
+    st.info("📦 暂无乐高价格数据，请先批量录入")
 
 if st.session_state.scroll_to_bottom:
     st.components.v1.html(auto_scroll, height=0)
