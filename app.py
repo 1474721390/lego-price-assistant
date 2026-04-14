@@ -8,6 +8,70 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 import plotly.express as px
 from supabase import create_client
+import time
+
+# ==================== 会话状态管理器（核心优化） ====================
+class SessionStateManager:
+    """统一的会话状态管理，避免竞态条件"""
+    _initialized = False
+    
+    @classmethod
+    def ensure_initialized(cls):
+        """确保会话状态完全初始化"""
+        if cls._initialized:
+            return True
+        
+        # 等待会话完全初始化（最多等待 0.5 秒）
+        max_wait = 0.5
+        start_time = time.time()
+        
+        while not hasattr(st, 'session_state') or st.session_state is None:
+            if time.time() - start_time > max_wait:
+                return False
+            time.sleep(0.01)
+        
+        # 初始化所有必要的状态
+        defaults = {
+            "selected_model": "",
+            "scroll_to_bottom": False,
+            "parse_result": pd.DataFrame(),
+            "original_parse": [],
+            "pending_cache_clear": False,
+            "current_page_tab4": 1,
+            "parse_triggered": False,
+            "save_triggered": False,
+        }
+        
+        for key, value in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = value
+        
+        cls._initialized = True
+        return True
+    
+    @classmethod
+    def safe_get(cls, key, default=None):
+        """安全获取会话状态"""
+        if not cls.ensure_initialized():
+            return default
+        return st.session_state.get(key, default)
+    
+    @classmethod
+    def safe_set(cls, key, value):
+        """安全设置会话状态"""
+        if cls.ensure_initialized():
+            st.session_state[key] = value
+    
+    @classmethod
+    def safe_rerun(cls, reason=""):
+        """安全的页面刷新（使用 query_params 避免会话重新初始化）"""
+        if cls.ensure_initialized():
+            # 使用 query_params 触发刷新，而不是 st.rerun()
+            st.query_params.update({
+                "refresh": str(time.time()),
+                "reason": reason
+            })
+            st.experimental_rerun()
 
 # ==================== 环境配置 ====================
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -20,9 +84,8 @@ if not all([SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY]):
 
 st.set_page_config(page_title="乐高报价系统", layout="wide")
 
-if "initialized" not in st.session_state:
-    st.session_state.clear()
-    st.session_state["initialized"] = True
+# ==================== 初始化会话状态（核心优化） ====================
+SessionStateManager.ensure_initialized()
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -373,7 +436,7 @@ def save_batch_one_by_one(records):
             continue
     # 优化：只在成功保存后标记缓存清除
     if success_count > 0:
-        st.session_state.pending_cache_clear = True
+        SessionStateManager.safe_set("pending_cache_clear", True)
     return success_count
 
 def update_record(id, data):
@@ -412,9 +475,9 @@ def render_grid_buttons(items, columns=3, prefix=""):
                 # 使用prefix + model + idx 确保唯一性
                 key = f"{prefix}_{model}_{idx}"
                 if col.button(label, key=key, use_container_width=True):
-                    st.session_state.selected_model = model
-                    st.session_state.scroll_to_bottom = True
-                    st.rerun()
+                    SessionStateManager.safe_set("selected_model", model)
+                    SessionStateManager.safe_set("scroll_to_bottom", True)
+                    SessionStateManager.safe_rerun("button_click")
 
 # ==================== 分页辅助函数 ====================
 def paginate(items, page_size, current_page):
@@ -422,16 +485,24 @@ def paginate(items, page_size, current_page):
     end_idx = start_idx + page_size
     return items[start_idx:end_idx]
 
+# ==================== 智能缓存清除（核心优化） ====================
+def smart_cache_clear():
+    """智能缓存清除，避免竞态条件"""
+    if SessionStateManager.safe_get("pending_cache_clear", False):
+        try:
+            # 尝试清除缓存
+            get_clean_data.clear()
+            st.cache_data.clear()
+            SessionStateManager.safe_set("pending_cache_clear", False)
+        except RuntimeError:
+            # 如果会话未初始化，延迟处理
+            pass
+
 # ==================== 界面 ====================
 st.title("🧩 乐高报价分析系统")
 
 # --- 批量录入区域移到最顶部 ---
 with st.expander("📝 批量录入", expanded=True):
-    if "parse_result" not in st.session_state:
-        st.session_state.parse_result = pd.DataFrame()
-    if "original_parse" not in st.session_state:
-        st.session_state.original_parse = []
-
     txt = st.text_area("粘贴内容", height=200)
 
     if st.button("🔍 解析", type="primary", use_container_width=True):
@@ -535,20 +606,20 @@ with st.expander("📝 批量录入", expanded=True):
 
         progress_bar.empty()
         status_text.empty()
-        st.session_state.parse_result = pd.DataFrame(res)
+        SessionStateManager.safe_set("parse_result", pd.DataFrame(res))
         # ====== 保存原始解析结果，用于后续对比 ======
-        st.session_state.original_parse = res.copy()
+        SessionStateManager.safe_set("original_parse", res.copy())
 
         if save_list:
             with st.spinner(f"正在保存 {len(save_list)} 条有效数据..."):
                 saved_count = save_batch_one_by_one(save_list)
             st.success(f"✅ 解析并自动保存 {saved_count} 条有效数据")
-            # 不在这里立即清除缓存，而是标记等待清除
-            st.rerun()
+            # 使用智能刷新，避免会话重新初始化
+            SessionStateManager.safe_rerun("parse_complete")
 
-    if not st.session_state.parse_result.empty:
+    if not SessionStateManager.safe_get("parse_result", pd.DataFrame()).empty:
         # ====== 优化：批量计算趋势和涨跌 ======
-        df_with_trend = st.session_state.parse_result.copy()
+        df_with_trend = SessionStateManager.safe_get("parse_result", pd.DataFrame()).copy()
         
         # 准备需要计算的模型-价格对
         valid_rows = df_with_trend[
@@ -604,15 +675,15 @@ with st.expander("📝 批量录入", expanded=True):
         )
 
         # ====== 修改点 2: 统计信息放在表格上方 ======
-        total = len(st.session_state.parse_result)
-        valid = sum(1 for r in st.session_state.parse_result.to_dict('records') if "✅ 有效" in r["状态"])
-        ai_fixed = sum(1 for r in st.session_state.parse_result.to_dict('records') if "AI 修正" in r["状态"])
-        manual = sum(1 for r in st.session_state.parse_result.to_dict('records') if "需手动" in r["状态"] or "解析失败" in r["状态"])
+        total = len(SessionStateManager.safe_get("parse_result", pd.DataFrame()))
+        valid = sum(1 for r in SessionStateManager.safe_get("parse_result", pd.DataFrame()).to_dict('records') if "✅ 有效" in r["状态"])
+        ai_fixed = sum(1 for r in SessionStateManager.safe_get("parse_result", pd.DataFrame()).to_dict('records') if "AI 修正" in r["状态"])
+        manual = sum(1 for r in SessionStateManager.safe_get("parse_result", pd.DataFrame()).to_dict('records') if "需手动" in r["状态"] or "解析失败" in r["状态"])
         st.markdown(f"📊 **本轮解析**：总 {total} 条｜✅ 有效 {valid}｜🤖 AI修正 {ai_fixed}｜✏️ 需手动 {manual}")
 
         if st.button("💾 修改并保存有效数据", type="primary", use_container_width=True):
             # ====== 关键修改: 只处理用户实际修改过的行 ======
-            original_dict = {i: row for i, row in enumerate(st.session_state.original_parse)}
+            original_dict = {i: row for i, row in enumerate(SessionStateManager.safe_get("original_parse", []))}
             save_list_manual = []
             
             for idx, (_, edited_row) in enumerate(edited_df.iterrows()):
@@ -676,10 +747,10 @@ with st.expander("📝 批量录入", expanded=True):
                         })
                     saved_count = save_batch_one_by_one(records_to_save)
                     st.success(f"✅ 成功保存 {saved_count} 条修正数据")
-                    st.session_state.parse_result = pd.DataFrame()
-                    st.session_state.original_parse = []
-                    # 不立即清除缓存，而是标记等待清除
-                    st.rerun()
+                    SessionStateManager.safe_set("parse_result", pd.DataFrame())
+                    SessionStateManager.safe_set("original_parse", [])
+                    # 使用智能刷新
+                    SessionStateManager.safe_rerun("save_complete")
 
 
 # --- 移除搜索框，将提醒阈值放入折叠面板 ---
@@ -692,15 +763,10 @@ with st.expander("⚙️ 设置", expanded=False):
         new_th = st.number_input("⚠️ 提醒阈值", min_value=1, value=th)
         if new_th != th:
             set_alert_threshold(new_th)
-            st.rerun()
+            SessionStateManager.safe_rerun("threshold_change")
 
 df = get_clean_data()
 all_models = sorted(df["型号"].unique()) if not df.empty else []
-
-if 'selected_model' not in st.session_state:
-    st.session_state.selected_model = ""
-if 'scroll_to_bottom' not in st.session_state:
-    st.session_state.scroll_to_bottom = False
 
 # --- 顶部导航栏 (Tabs) ---
 tab1, tab2, tab3, tab4 = st.tabs(["⭐ 我的收藏", "📈 涨跌幅排行", "📊 价格预警", "💰 价格区间筛选"])
@@ -758,7 +824,7 @@ with tab3:
     with col_min:
         min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_alert")
     with col_max:
-        max_price_alert = st.number_input("最高价格", min_value=0, value=50, step=10, key="max_price_alert")
+        max_price_alert = st.number_input("最高价格", min_value=0, value=10000, step=10, key="max_price_alert")
     
     st.divider()
     st.markdown("#### 🚨 点击查看详情")
@@ -808,7 +874,7 @@ with tab4:
     with col_min:
         min_price = st.number_input("最低价格", min_value=0, value=0, step=10)
     with col_max:
-        max_price = st.number_input("最高价格", min_value=0, value=50, step=10)
+        max_price = st.number_input("最高价格", min_value=0, value=10000, step=10)
     
     if min_price >= max_price and max_price > 0:
         st.warning("最高价格应大于最低价格")
@@ -832,9 +898,9 @@ with tab4:
                 default_page_size = 20
                 page_size = st.selectbox("每页显示", options=[10, 20, 50], index=1, key="page_size_select_tab4")
                 total_pages = max(1, (total_items + page_size - 1) // page_size)
-                current_page = st.session_state.get("current_page_tab4", 1)
+                current_page = SessionStateManager.safe_get("current_page_tab4", 1)
                 current_page = st.slider("页码", 1, total_pages, current_page, key="page_slider_tab4")
-                st.session_state.current_page_tab4 = current_page
+                SessionStateManager.safe_set("current_page_tab4", current_page)
 
                 paginated_items = paginate(items, page_size, current_page)
                 render_grid_buttons(paginated_items, columns=2, prefix="filter_tab4")
@@ -852,17 +918,17 @@ st.divider()
 st.subheader("📋 历史数据管理")
 if not df.empty:
     idx = 0
-    if st.session_state.selected_model in all_models:
-        idx = all_models.index(st.session_state.selected_model) + 1
+    if SessionStateManager.safe_get("selected_model", "") in all_models:
+        idx = all_models.index(SessionStateManager.safe_get("selected_model", "")) + 1
 
     target = st.selectbox("选择型号", [""] + all_models, index=idx)
     if target:
-        st.session_state.selected_model = target
+        SessionStateManager.safe_set("selected_model", target)
         isfav = target in favs
         btn_txt = "⭐ 取消收藏" if isfav else "☆ 收藏"
         if st.button(btn_txt):
             toggle_favorite(target)
-            st.rerun()
+            SessionStateManager.safe_rerun("favorite_toggle")
 
         rules = get_price_rules()
         rule = rules.get(target, {"buy":0, "sell":0})
@@ -874,7 +940,7 @@ if not df.empty:
         if st.button("💾 保存心理价位"):
             save_price_rule(target, b, s)
             st.success("✅ 已保存")
-            st.rerun()
+            SessionStateManager.safe_rerun("price_rule_save")
 
         model_data = df[df["型号"]==target].sort_values("时间", ascending=False)
         if not model_data.empty:
@@ -924,7 +990,7 @@ if not df.empty:
                     })
                 st.success("完成")
                 get_clean_data.clear()
-                st.rerun()
+                SessionStateManager.safe_rerun("data_edit")
 
             st.subheader("价格走势")
             fig = px.line(model_data.sort_values("时间"), x="时间", y="价格", markers=True)
@@ -932,12 +998,9 @@ if not df.empty:
 else:
     st.info("暂无数据")
 
-if st.session_state.scroll_to_bottom:
+if SessionStateManager.safe_get("scroll_to_bottom", False):
     st.components.v1.html(auto_scroll, height=0)
-    st.session_state.scroll_to_bottom = False
+    SessionStateManager.safe_set("scroll_to_bottom", False)
 
-# 在页面末尾统一处理缓存清除
-if st.session_state.get("pending_cache_clear", False):
-    get_clean_data.clear()
-    st.cache_data.clear()
-    st.session_state.pending_cache_clear = False
+# 在页面末尾统一处理缓存清除（使用智能清除）
+smart_cache_clear()
