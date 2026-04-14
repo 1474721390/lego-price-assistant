@@ -826,7 +826,7 @@ with tab3:
     with col_min:
         min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_alert")
     with col_max:
-        max_price_alert = st.number_input("最高价格", min_value=0, value=10000, step=10, key="max_price_alert")
+        max_price_alert = st.number_input("最高价格", min_value=0, value=50, step=10, key="max_price_alert")
     
     st.divider()
     st.markdown("#### 🚨 点击查看详情")
@@ -876,7 +876,7 @@ with tab4:
     with col_min:
         min_price = st.number_input("最低价格", min_value=0, value=0, step=10)
     with col_max:
-        max_price = st.number_input("最高价格", min_value=0, value=10000, step=10)
+        max_price = st.number_input("最高价格", min_value=0, value=50, step=10)
     
     if min_price >= max_price and max_price > 0:
         st.warning("最高价格应大于最低价格")
