@@ -498,7 +498,7 @@ def apply_sorting(df, sort_column, ascending):
     else:
         return df.sort_values(sort_column, ascending=ascending)
 
-def paginate_dataframe(df, page_size, current_page):
+def paginate(df, page_size, current_page):
     """分页"""
     start_idx = (current_page - 1) * page_size
     end_idx = start_idx + page_size
