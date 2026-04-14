@@ -499,10 +499,17 @@ def apply_sorting(df, sort_column, ascending):
         return df.sort_values(sort_column, ascending=ascending)
 
 def paginate(df, page_size, current_page):
-    """分页"""
+    """分页（用于DataFrame）"""
     start_idx = (current_page - 1) * page_size
     end_idx = start_idx + page_size
     return df.iloc[start_idx:end_idx]
+
+# ====== 新增：用于列表分页的函数 ======
+def paginate_list(items, page_size, current_page):
+    """分页（用于列表）"""
+    start_idx = (current_page - 1) * page_size
+    end_idx = start_idx + page_size
+    return items[start_idx:end_idx]
 
 # ==================== 界面 ====================
 st.title("🧩 乐高报价分析系统")
@@ -897,7 +904,7 @@ with tab4:
                 current_page = st.slider("页码", 1, total_pages, current_page, key="page_slider_tab4")
                 st.session_state.current_page_tab4 = current_page
 
-                paginated_items = paginate(items, page_size, current_page)
+                paginated_items = paginate_list(items, page_size, current_page)
                 render_grid_buttons(paginated_items, columns=2, prefix="filter_tab4")
                 st.caption(f"共 {total_items} 条数据，当前显示第 {current_page} 页，共 {total_pages} 页")
             else:
