@@ -66,6 +66,7 @@ class SessionStateManager:
             "saving_in_progress": False,
             "quick_nav_model": "",
             "show_favorites_bar": True,
+            "last_rerun_time": 0
         }
         
         for key, value in defaults.items():
@@ -88,21 +89,17 @@ class SessionStateManager:
         if cls.ensure_initialized():
             st.session_state[key] = value
 
-@classmethod
-def safe_rerun(cls, reason="", force=False):
-    """安全的页面刷新，避免无限循环"""
-    if not force:
-        last_rerun = st.session_state.get("last_rerun_time", 0)
-        if time.time() - last_rerun < 1:
-            return
-            
-    if cls.ensure_initialized():
-        st.session_state["last_rerun_time"] = time.time()
-        st.query_params.update({
-            "refresh": str(time.time()),
-            "reason": reason
-        })
-        st.rerun()
+    @classmethod
+    def safe_rerun(cls, reason="", force=False):
+        """安全的页面刷新，避免无限循环"""
+        if not force:
+            last_rerun = st.session_state.get("last_rerun_time", 0)
+            if time.time() - last_rerun < 1:
+                return
+                
+        if cls.ensure_initialized():
+            st.session_state["last_rerun_time"] = time.time()
+            st.rerun()
 
 # ==================== 环境配置 ====================
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -121,7 +118,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==================== 🌸 豆包完美终极 CSS（功能不变 + 颜值天花板） ====================
+# ==================== 🌸 终极商用美化CSS ====================
 st.markdown("""
 <style>
     /* 全局柔和高级背景 */
@@ -173,9 +170,7 @@ st.markdown("""
         box-shadow: 0 5px 12px rgba(0,0,0,0.1);
     }
 
-    /* ======================
-       🌟 完美修复输入框（最关键）
-       ====================== */
+    /* 🌟 完美修复输入框 */
     div[data-testid="stNumberInput"],
     div[data-testid="stTextInput"] {
         background: #ffffff !important;
@@ -185,7 +180,6 @@ st.markdown("""
         box-shadow: 0 1px 4px rgba(74,108,247,0.1) !important;
     }
 
-    /* 输入框内部高亮白色 */
     .stTextInput input,
     .stNumberInput input {
         background: #ffffff !important;
@@ -196,7 +190,6 @@ st.markdown("""
         padding: 10px 12px !important;
     }
 
-    /* 输入框聚焦效果 */
     .stTextInput input:focus,
     .stNumberInput input:focus {
         border-color: #4a6cf7 !important;
@@ -224,6 +217,11 @@ st.markdown("""
     .stButton button:has(div:contains("尾页")) {
         background: #f8faff !important;
         border: 1px solid #e0e7ff !important;
+    }
+
+    /* 滚动平滑 */
+    html {
+        scroll-behavior: smooth !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -679,14 +677,16 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
         col1, col2 = st.columns([1, 5])
         with col1:
             parse_submitted = st.form_submit_button(
-                "🔍 智能解析",
+                "🔍 一键解析报价",
                 type="primary",
                 use_container_width=True
             )
         with col2:
             st.caption("💡 系统会自动识别型号、价格、备注，并用AI修正可疑数据")
     
-    if parse_submitted and not SessionStateManager.safe_get("parsing_in_progress", False):
+    parsing = SessionStateManager.safe_get("parsing_in_progress", False)
+    
+    if parse_submitted and not parsing:
         SessionStateManager.safe_set("parsing_in_progress", True)
         
         if not txt:
@@ -708,8 +708,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
                 if not m or not p:
                     res.append({
                         "型号": "", "价格": 0, "备注": "", 
-                        "原始": li, "状态": "❌ 解析失败",
-                        "背景色": "parse-failed-row"
+                        "原始": li, "状态": "❌ 解析失败"
                     })
                     continue
                 temp_items.append({"model": m, "price": p, "remark": r.strip(), "raw": li})
@@ -748,36 +747,30 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
                 if (m, p, r) in today_set:
                     res.append({
                         "型号": m, "价格": p, "备注": r, "原始": raw,
-                        "状态": "⏭️ 已跳过（当天重复）",
-                        "背景色": "success-row"
+                        "状态": "⏭️ 已跳过（当天重复）"
                     })
                     continue
                 
                 use_ai = should_use_ai_fallback(m, p, raw)
                 final_model, final_price, final_remark = m, p, r
-                ai_used = False
                 
                 if use_ai:
                     ai_model, ai_price, ai_remark = extract_by_llm_full(raw)
                     if ai_model and ai_price:
                         final_model, final_price, final_remark = ai_model, ai_price, ai_remark
-                        ai_used = True
                         res.append({
                             "型号": final_model, "价格": final_price, "备注": final_remark,
-                            "原始": raw, "状态": f"✅ 有效（AI修正）",
-                            "背景色": "ai-corrected-row"
+                            "原始": raw, "状态": f"✅ 有效（AI修正）"
                         })
                     else:
                         res.append({
                             "型号": m, "价格": p, "备注": r, "原始": raw,
-                            "状态": f"⚠️ 可疑（建议手动确认）",
-                            "背景色": "parse-failed-row"
+                            "状态": f"⚠️ 可疑（建议手动确认）"
                         })
                 else:
                     res.append({
                         "型号": m, "价格": p, "备注": r, "原始": raw,
-                        "状态": "✅ 有效",
-                        "背景色": "success-row"
+                        "状态": "✅ 有效"
                     })
                 
                 if "✅ 有效" in res[-1]["状态"]:
@@ -862,9 +855,9 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
         with col4:
             st.metric("✏️ 需手动", f"{manual} 条")
 
-        if st.button("💾 应用修改并保存", type="primary", use_container_width=True, 
-                    disabled=SessionStateManager.safe_get("saving_in_progress", False)):
-            SessionStateManager.safe_set("saving_in_progress", False)
+        saving = SessionStateManager.safe_get("saving_in_progress", False)
+        if st.button("💾 保存并更新数据", type="primary", use_container_width=True, disabled=saving):
+            SessionStateManager.safe_set("saving_in_progress", True)
             
             original_dict = {i: row for i, row in enumerate(SessionStateManager.safe_get("original_parse", []))}
             save_list_manual = []
@@ -1031,7 +1024,7 @@ with tab2:
             st.caption("暂无数据")
 
 # ------------------------------
-# Tab 3: 价格预警（默认最大值100）
+# Tab 3: 价格预警
 # ------------------------------
 with tab3:
     st.markdown("### 🚨 价格异常波动预警")
@@ -1093,7 +1086,7 @@ with tab3:
         st.info("✅ 暂无价格异常波动")
 
 # ------------------------------
-# Tab 4: 价格筛选（专业商家版）
+# Tab 4: 价格筛选
 # ------------------------------
 with tab4:
     st.markdown("### 🔍 价格区间筛选")
@@ -1135,13 +1128,11 @@ with tab4:
                         model
                     ))
                 
-                # 专业分页：首页 上一页 输入页码 下一页 尾页
                 total_items = len(items)
                 page_size = st.selectbox("每页显示", options=[10,20,50], index=1, key="pgsize")
                 total_pages = max(1, (total_items + page_size -1) // page_size)
                 current_page = SessionStateManager.safe_get("current_page_tab4", 1)
 
-                # 分页工具栏
                 col1, col2, col3, col4, col5 = st.columns([1,1,2,1,1])
                 with col1:
                     if st.button("🏠首页", use_container_width=True):
@@ -1224,7 +1215,7 @@ if not df.empty:
             st.write("")
             if st.button("💾 保存", use_container_width=True):
                 save_price_rule(target, b, s)
-                st.success("✅ 已保存")
+                st.success("✅ 保存成功")
                 st.rerun()
 
         model_data = df[df["型号"] == target].sort_values("时间", ascending=False)
@@ -1335,4 +1326,4 @@ smart_cache_clear()
 
 # ==================== 页脚 ====================
 st.divider()
-st.caption("🧩 乐高智能报价系统 | 商家完美美化版 | 赏心悦目")
+st.caption("🧩 乐高智能报价系统 | 最终完美商用版")
