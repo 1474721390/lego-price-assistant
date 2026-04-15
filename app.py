@@ -26,9 +26,8 @@ import time
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ==================== 会话状态管理器（极简健壮版） ====================
+# ==================== 会话状态管理器 ====================
 class SessionStateManager:
-    """统一的会话状态管理，完全防御性编程"""
     _initialized = False
 
     @classmethod
@@ -47,7 +46,7 @@ class SessionStateManager:
             "temp_price_rules": {},
             "clear_parse_result": False,
             "parse_result_status_filter": "全部",
-            "trigger_parse": False,      # 新增：触发解析标志
+            "trigger_parse": False,
         }
         for key, value in defaults.items():
             if key not in st.session_state:
@@ -90,7 +89,7 @@ except Exception:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ==================== 数据层缓存函数（纯函数） ====================
+# ==================== 数据层缓存函数 ====================
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_all_records_cached(table_name):
     all_data = []
@@ -157,7 +156,7 @@ def get_price_rules():
     rules.update(temp)
     return rules
 
-# ==================== 其他业务函数 ====================
+# ==================== 业务函数 ====================
 def get_favorites():
     res = supabase.table("user_favorites").select("model").execute()
     return {item["model"] for item in res.data} if res.data else set()
@@ -406,23 +405,20 @@ if SessionStateManager.safe_get("clear_parse_result", False):
     SessionStateManager.safe_set("original_parse", [])
     SessionStateManager.safe_set("clear_parse_result", False)
 
-# --- 批量录入区域（修复二次点击无响应、表格不显示问题） ---
+# --- 批量录入区域（完全修复表格显示逻辑） ---
 with st.expander("📝 批量录入", expanded=True):
     txt = st.text_area("粘贴内容", height=200, key="batch_input_text")
     
-    # 使用普通按钮而非 form_submit_button，避免表单状态干扰
     col_btn1, col_btn2 = st.columns([1, 4])
     with col_btn1:
         parse_clicked = st.button("🔍 解析", type="primary", use_container_width=True,
                                  disabled=SessionStateManager.safe_get("parsing_in_progress", False))
     
-    # 如果按钮被点击，设置触发标志
     if parse_clicked:
         SessionStateManager.safe_set("trigger_parse", True)
     
-    # 执行解析（如果触发标志为 True 且未在解析中）
+    # 执行解析
     if SessionStateManager.safe_get("trigger_parse", False) and not SessionStateManager.safe_get("parsing_in_progress", False):
-        # 重置触发标志
         SessionStateManager.safe_set("trigger_parse", False)
         SessionStateManager.safe_set("parsing_in_progress", True)
         
@@ -551,7 +547,7 @@ with st.expander("📝 批量录入", expanded=True):
                 }
                 res_sorted = sorted(res_filtered, key=lambda x: priority_order.get(x.get("状态", ""), 99))
                 
-                # 无论是否有数据，都更新 parse_result
+                # 更新解析结果
                 SessionStateManager.safe_set("parse_result", pd.DataFrame(res_sorted))
                 SessionStateManager.safe_set("original_parse", res_sorted.copy())
                 
@@ -559,20 +555,23 @@ with st.expander("📝 批量录入", expanded=True):
                     with st.spinner(f"正在保存 {len(save_list)} 条有效数据..."):
                         saved_count = save_batch_one_by_one(save_list)
                     st.success(f"✅ 解析并自动保存 {saved_count} 条有效数据")
-                    SessionStateManager.safe_set("clear_parse_result", True)
-                    st.rerun()
                 else:
                     if res_filtered:
                         st.info("解析完成，没有新的有效数据需要保存")
                     else:
                         st.warning("没有解析到任何有效数据")
+                
+                # 如果有解析结果，清除自动清空标记，确保表格显示
+                SessionStateManager.safe_set("clear_parse_result", False)
         except Exception as e:
             logger.error(f"解析过程异常: {e}")
             st.error(f"解析出错，请重试。错误信息：{e}")
         finally:
             SessionStateManager.safe_set("parsing_in_progress", False)
+            # 强制刷新以显示表格
+            st.rerun()
     
-    # 显示解析结果表格（即使为空也展示提示）
+    # 显示解析结果表格（完全独立，不再受 save_list 影响）
     parse_df = SessionStateManager.safe_get("parse_result", pd.DataFrame())
     if not parse_df.empty:
         status_counts = parse_df["状态"].value_counts().to_dict()
@@ -718,7 +717,7 @@ with st.expander("📝 批量录入", expanded=True):
         else:
             st.info("当前筛选条件下无数据")
     else:
-        # 即使没有数据，也显示一个提示
+        # 显示占位提示
         st.info("暂无解析结果，请粘贴内容后点击“解析”")
 
 # --- 设置折叠面板 ---
