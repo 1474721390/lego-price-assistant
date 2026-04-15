@@ -158,24 +158,22 @@ st.markdown("""
         box-shadow: 0 3px 8px rgba(74,108,247,0.3);
     }
 
-    .stButton > button {
-        border-radius: 12px;
-        font-weight: 600;
-        padding: 8px 14px;
-        transition: all 0.25s ease;
-        border: none;
+    /* 列表里的型号按钮：恢复原来的浅灰 */
+    .scroll-box .stButton > button {
         background: #f7f8ff !important;
         color: #333 !important;
     }
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 12px rgba(0,0,0,0.1);
+    .scroll-box .stButton > button:hover {
+        background: #eef1f8 !important;
+    }
+    .scroll-box button p {
+        color: #111111 !important;
+        font-weight: 500 !important;
     }
 
-    /* 以下三个按钮 强制 蓝底白字 */
+    /* 🔥 只有这三个主按钮 蓝底白字 */
     div[data-testid="stFormSubmitButton"] button,
-    button[kind="primary"],
-    .stButton button {
+    button[kind="primary"] {
         background: #2A5BD9 !important;
         color: #FFFFFF !important;
         font-weight: 600 !important;
@@ -184,8 +182,7 @@ st.markdown("""
     }
 
     div[data-testid="stFormSubmitButton"] button:hover,
-    button[kind="primary"]:hover,
-    .stButton button:hover {
+    button[kind="primary"]:hover {
         background: #1E4AC2 !important;
         color: #FFFFFF !important;
         transform: translateY(-2px);
@@ -207,11 +204,6 @@ st.markdown("""
         overflow-y: auto !important;
         border: 1px solid #e4eaf7 !important;
         margin-top: 10px !important;
-    }
-
-    .scroll-box button p {
-        color: #111111 !important;
-        font-weight: 500 !important;
     }
 
     h1, h2, h3, h4, h5, h6 {
