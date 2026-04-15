@@ -396,7 +396,7 @@ def extract_remark(line):
             bag = bg
             break
 
-    if box && bag:
+    if box and bag:
         return f"{box}+{bag}"
     elif box:
         return box
@@ -457,7 +457,7 @@ def extract_by_llm_full(line):
                     model = res.get("model")
                     price = res.get("price")
                     remark = res.get("remark", "")
-                    if isinstance(model, str) && len(model) == 5 && model.isdigit() && model[0] != '0':
+                    if isinstance(model, str) and len(model) == 5 and model.isdigit() and model[0] != '0':
                         try:
                             price = float(price)
                             if 10 <= price <= 8000:
@@ -477,7 +477,7 @@ def should_use_ai_fallback(model, price, line):
     if not (10 <= price <= 8000):
         return True
     
-    if not (model && len(model) == 5 && model.isdigit() && model[0] != '0'):
+    if not (model and len(model) == 5 and model.isdigit() and model[0] != '0'):
         return True
     
     if model in latest:
@@ -686,7 +686,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
         with col2:
             st.caption("💡 系统会自动识别型号、价格、备注，并用AI修正可疑数据")
     
-    if parse_submitted && !SessionStateManager.safe_get("parsing_in_progress", False):
+    if parse_submitted and not SessionStateManager.safe_get("parsing_in_progress", False):
         SessionStateManager.safe_set("parsing_in_progress", True)
         
         if not txt:
@@ -729,7 +729,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
             today_set = set()
             for _, row in all_records.iterrows():
                 time_str = row.get("time", "")
-                if time_str && time_str[:10] == today_str:
+                if time_str and time_str[:10] == today_str:
                     today_set.add((row["model"], row["price"], str(row.get("remark", "")).strip()))
 
             save_list = []
@@ -759,7 +759,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
                 
                 if use_ai:
                     ai_model, ai_price, ai_remark = extract_by_llm_full(raw)
-                    if ai_model && ai_price:
+                    if ai_model and ai_price:
                         final_model, final_price, final_remark = ai_model, ai_price, ai_remark
                         ai_used = True
                         res.append({
@@ -881,7 +881,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
                 
                 model = str(edited_row["型号"]).strip()
                 price = edited_row["价格"]
-                if not (model && len(model) == 5 && model.isdigit()):
+                if not (model and len(model) == 5 and model.isdigit()):
                     continue
                 try:
                     price = int(price)
@@ -905,7 +905,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
                 today_set = set()
                 for _, row in all_records.iterrows():
                     time_str = row.get("time", "")
-                    if time_str && time_str[:10] == today_str:
+                    if time_str and time_str[:10] == today_str:
                         today_set.add((row["model"], row["price"], str(row.get("remark", "")).strip()))
 
                 final_save = []
@@ -1104,7 +1104,7 @@ with tab4:
     with col_max:
         max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_tab4")
     
-    if min_price >= max_price && max_price > 0:
+    if min_price >= max_price and max_price > 0:
         st.warning("⚠️ 最高价格应大于最低价格")
     else:
         df_clean = get_clean_data()
@@ -1112,7 +1112,7 @@ with tab4:
             latest_df = df_clean.sort_values('时间').groupby('型号').tail(1)
             
             if max_price > 0:
-                filtered_df = latest_df[(latest_df['价格'] >= min_price) && (latest_df['价格'] <= max_price)]
+                filtered_df = latest_df[(latest_df['价格'] >= min_price) & (latest_df['价格'] <= max_price)]
             else:
                 filtered_df = latest_df[latest_df['价格'] >= min_price]
             
@@ -1244,9 +1244,9 @@ if not df.empty:
                     st.metric("距离收货价", f"{delta:+}元")
             
             tip = ""
-            if s > 0 && cur >= s:
+            if s > 0 and cur >= s:
                 tip = f"❤️ 当前价 ¥{cur} 已达到出货价位，可考虑出货！"
-            elif b > 0 && cur <= b:
+            elif b > 0 and cur <= b:
                 tip = f"💚 当前价 ¥{cur} 已低于收货价位，可考虑收货！"
             
             if tip:
@@ -1256,7 +1256,7 @@ if not df.empty:
             st.markdown("#### 📝 历史数据编辑")
             
             def format_date(t_str):
-                if t_str && len(t_str) >= 10:
+                if t_str and len(t_str) >= 10:
                     return t_str[:10]
                 return t_str
 
