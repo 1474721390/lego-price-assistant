@@ -667,7 +667,7 @@ with st.expander("📝 批量录入", expanded=True):
             skipped = status_counts.get("⏭️ 已跳过（当天重复）", 0)
             st.markdown(f"📊 **本轮解析**：总 {total} 条｜✅ 有效 {valid}｜🤖 AI修正 {ai_fixed}｜✏️ 需手动 {manual}｜❌ 失败 {failed}｜⏭️ 跳过 {skipped}")
             
-                                              # ========== 修复：快速采纳区域（移除 expander，避免 API 异常） ==========
+                                                          # ========== 修复：快速采纳区域（移除 expander，避免 API 异常） ==========
             if manual > 0:
                 st.divider()
                 st.subheader("⚡ 快速采纳需手动核实的数据")
