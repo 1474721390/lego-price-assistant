@@ -42,23 +42,21 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==================== 延迟初始化 Supabase 客户端（确保在任何时候调用都能拿到有效实例） ====================
+# ==================== 延迟初始化 Supabase 客户端 ====================
 _supabase_client = None
 
 def get_supabase() -> Client:
-    """安全获取 Supabase 客户端，若未初始化则立即创建"""
     global _supabase_client
     if _supabase_client is None:
         try:
             _supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-            # 简单测试连接
             _supabase_client.table("settings").select("id").limit(1).execute()
         except Exception as e:
             st.error(f"❌ 无法连接到 Supabase，请检查网络或密钥。错误：{e}")
             st.stop()
     return _supabase_client
 
-# ==================== 会话状态初始化（极简稳定，避免 SessionInfo 错误） ====================
+# ==================== 会话状态初始化 ====================
 if "parse_result" not in st.session_state:
     st.session_state.parse_result = pd.DataFrame()
 if "original_parse" not in st.session_state:
@@ -141,7 +139,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== 数据层缓存函数（纯函数，绝不触碰 session_state） ====================
+# ==================== 数据层缓存函数 ====================
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_all_records_cached(table_name):
     supabase = get_supabase()
