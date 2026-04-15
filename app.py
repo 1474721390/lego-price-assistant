@@ -118,18 +118,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==================== 🌸 终极商用美化CSS ====================
+# ==================== 🌸 终极商用无瑕疵CSS ====================
 st.markdown("""
 <style>
-    /* 全局柔和高级背景 */
+    /* 全局背景 */
     .stApp {
-        background: linear-gradient(135deg, #f8f9ff 0%, #eef2fc 100%);
-        background-attachment: fixed;
+        background: linear-gradient(135deg, #f8f9ff 0%, #eef2fc 100%) !important;
+        background-attachment: fixed !important;
     }
 
-    /* 卡片圆角 + 高级阴影 */
+    /* 卡片容器 - 纯白色，和背景区分开 */
     .stExpander, .stTabs [role="tabpanel"], [data-testid="stForm"] {
-        background: #ffffff !important;
+        background: #FFFFFF !important;
         border-radius: 16px !important;
         box-shadow: 0 4px 12px rgba(0,0,0,0.06);
         padding: 22px;
@@ -137,91 +137,71 @@ st.markdown("""
         border: none !important;
     }
 
-    /* 标签页顶级美化 */
+    /* 标签美化 */
     .stTabs [role="tablist"] {
         background: #f1f5ff;
         border-radius: 14px;
         padding: 6px;
         gap: 6px;
     }
-    .stTabs [role="tab"] {
-        border-radius: 10px !important;
-        font-weight: 600;
-        padding: 10px 16px;
-        transition: all 0.2s ease;
-    }
     .stTabs [aria-selected="true"] {
         background: #4a6cf7 !important;
         color: white !important;
-        box-shadow: 0 3px 8px rgba(74,108,247,0.3);
+        font-weight: bold;
     }
 
-    /* 按钮顶级质感 */
-    .stButton > button {
-        border-radius: 12px;
-        font-weight: 600;
-        padding: 8px 14px;
-        transition: all 0.25s ease;
-        border: none;
-        background: #f7f8ff !important;
+    /* --------- 🔥 核心修复：按钮独立背景，不再和页面融为一体 --------- */
+    div.stButton > button {
+        background: #4A6CF7 !important; /* 主色按钮，清晰醒目 */
+        color: white !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        padding: 0.5rem 1rem !important;
+        border: none !important;
+        transition: all 0.2s ease !important;
     }
-    .stButton > button:hover {
+
+    /* 悬停效果 */
+    div.stButton > button:hover {
+        background: #3A5CE3 !important;
         transform: translateY(-2px);
-        box-shadow: 0 5px 12px rgba(0,0,0,0.1);
+        box-shadow: 0 5px 12px rgba(74,108,247, 0.3);
+        color: white !important;
     }
 
-    /* 🌟 完美修复输入框 */
+    /* 主要按钮（一键解析 / 保存）更强突出 */
+    button[kind="primary"] {
+        background: #28C76F !important; /* 绿色主按钮，超级醒目 */
+        color: white !important;
+        font-weight: bold !important;
+    }
+    button[kind="primary"]:hover {
+        background: #20B05E !important;
+    }
+
+    /* 输入框样式 */
     div[data-testid="stNumberInput"],
     div[data-testid="stTextInput"] {
         background: #ffffff !important;
         border: 1px solid #d4e0fd !important;
         border-radius: 12px !important;
-        padding: 6px 12px !important;
-        box-shadow: 0 1px 4px rgba(74,108,247,0.1) !important;
     }
 
-    .stTextInput input,
-    .stNumberInput input {
+    .stTextInput input, .stNumberInput input {
         background: #ffffff !important;
-        border: none !important;
-        border-radius: 10px !important;
-        color: #111111 !important;
+        color: #111 !important;
         font-size: 15px !important;
-        padding: 10px 12px !important;
-    }
-
-    .stTextInput input:focus,
-    .stNumberInput input:focus {
-        border-color: #4a6cf7 !important;
-        box-shadow: 0 0 0 2px rgba(74,108,247,0.2) !important;
-    }
-
-    /* 标题纯黑清晰 */
-    h1, h2, h3, h4, h5, h6 {
-        font-weight: 700 !important;
-        color: #000000 !important;
-        margin-top: 10px !important;
-        margin-bottom: 14px !important;
-    }
-
-    /* 分割线柔和 */
-    [data-testid="stDivider"] {
-        border-color: #e4eaf7;
-        margin: 24px 0;
-    }
-
-    /* 分页按钮精致 */
-    .stButton button:has(div:contains("首页")),
-    .stButton button:has(div:contains("上一页")),
-    .stButton button:has(div:contains("下一页")),
-    .stButton button:has(div:contains("尾页")) {
-        background: #f8faff !important;
-        border: 1px solid #e0e7ff !important;
     }
 
     /* 滚动平滑 */
     html {
         scroll-behavior: smooth !important;
+    }
+
+    /* 标题 */
+    h1, h2, h3, h4, h5, h6 {
+        font-weight: 700 !important;
+        color: #000 !important;
     }
 </style>
 """, unsafe_allow_html=True)
