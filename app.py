@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 import plotly.express as px
 from supabase import create_client
+import time
 
 # ==================== 日志配置 ====================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -44,13 +45,11 @@ st.set_page_config(
 # ==================== 自定义CSS美化 ====================
 st.markdown("""
 <style>
-    /* 全局字体与背景 */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
     html, body, [class*="css"]  {
         font-family: 'Inter', sans-serif;
         background-color: #f5f7fa;
     }
-    /* 主标题 */
     .main-title {
         font-size: 2.5rem;
         font-weight: 700;
@@ -59,7 +58,6 @@ st.markdown("""
         -webkit-text-fill-color: transparent;
         margin-bottom: 1rem;
     }
-    /* 卡片样式 */
     .card {
         background-color: white;
         border-radius: 16px;
@@ -68,7 +66,6 @@ st.markdown("""
         margin-bottom: 20px;
         border: 1px solid #e9ecef;
     }
-    /* 按钮样式 */
     .stButton > button {
         border-radius: 10px;
         font-weight: 500;
@@ -79,23 +76,15 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 0 6px 16px rgba(0,0,0,0.1);
     }
-    /* 主要按钮 */
     .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
     }
-    /* 输入框 */
     .stTextArea textarea {
         border-radius: 12px;
         border: 1px solid #d1d9e6;
         background-color: white;
     }
-    /* 表格 */
-    .stDataFrame {
-        border-radius: 12px;
-        overflow: hidden;
-    }
-    /* 标签页 */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
     }
@@ -109,76 +98,63 @@ st.markdown("""
         font-weight: 600;
         box-shadow: 0 -2px 6px rgba(0,0,0,0.05);
     }
-    /* 分割线 */
     hr {
         margin: 1.5rem 0;
         border-color: #e9ecef;
     }
-    /* 信息提示框 */
-    .info-box {
-        background-color: #e7f5ff;
-        border-left: 4px solid #339af0;
-        padding: 16px;
-        border-radius: 8px;
-        margin: 16px 0;
-    }
-    /* 成功提示 */
-    .success-box {
-        background-color: #ebfbee;
-        border-left: 4px solid #51cf66;
-        padding: 16px;
-        border-radius: 8px;
-    }
-    /* 预警卡片 */
-    .alert-card {
-        background-color: #fff9db;
-        border-left: 4px solid #fcc419;
-        padding: 12px 16px;
-        border-radius: 8px;
-        margin-bottom: 8px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== 会话状态初始化（极简稳定，避免 SessionInfo 错误） ====================
-if "parse_result" not in st.session_state:
-    st.session_state.parse_result = pd.DataFrame()
-if "original_parse" not in st.session_state:
-    st.session_state.original_parse = []
-if "selected_model" not in st.session_state:
-    st.session_state.selected_model = ""
-if "scroll_to_bottom" not in st.session_state:
-    st.session_state.scroll_to_bottom = False
-if "parsing_in_progress" not in st.session_state:
-    st.session_state.parsing_in_progress = False
-if "saving_in_progress" not in st.session_state:
-    st.session_state.saving_in_progress = False
-if "parse_result_status_filter" not in st.session_state:
-    st.session_state.parse_result_status_filter = "全部"
+# ==================== 手动内存缓存（替代 st.cache_data，彻底避免 SessionInfo 错误） ====================
+_cache = {}
+_cache_ttl = {}
+CACHE_TTL = 120  # 秒
 
-# ==================== Supabase 客户端 ====================
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+def cached_get(key, func, ttl=CACHE_TTL):
+    """手动缓存：如果缓存存在且未过期则返回，否则执行 func 并缓存"""
+    now = time.time()
+    if key in _cache and _cache_ttl.get(key, 0) > now:
+        return _cache[key]
+    data = func()
+    _cache[key] = data
+    _cache_ttl[key] = now + ttl
+    return data
 
-# ==================== 纯数据层缓存函数（绝不访问 session_state） ====================
-@st.cache_data(ttl=120, show_spinner=False)
-def fetch_all_records_cached(table_name):
+def clear_cache(prefix=""):
+    """清除指定前缀的缓存"""
+    global _cache, _cache_ttl
+    if prefix:
+        keys_to_del = [k for k in _cache if k.startswith(prefix)]
+        for k in keys_to_del:
+            del _cache[k]
+            if k in _cache_ttl:
+                del _cache_ttl[k]
+    else:
+        _cache.clear()
+        _cache_ttl.clear()
+
+# ==================== 数据获取函数（纯函数，不依赖 session_state） ====================
+def _fetch_price_records():
     all_data = []
     page_size = 1000
     start = 0
     while True:
-        res = supabase.table(table_name).select("*").range(start, start+page_size-1).execute()
+        res = supabase.table("price_records").select("*").range(start, start+page_size-1).execute()
         if not res.data:
             break
         all_data.extend(res.data)
         start += page_size
     return all_data
 
-@st.cache_data(ttl=120, show_spinner=False)
+def get_all_price_records_df():
+    data = cached_get("all_price_records", _fetch_price_records)
+    return pd.DataFrame(data) if data else pd.DataFrame()
+
 def get_clean_data():
-    all_data = fetch_all_records_cached("price_records")
-    if not all_data:
-        return pd.DataFrame()
-    df = pd.DataFrame(all_data)
+    df = get_all_price_records_df()
+    if df.empty:
+        return df
+    df = df.copy()
     df["原始时间"] = df["time"]
     df["时间"] = pd.to_datetime(df["time"], errors='coerce')
     df["型号"] = df["model"].astype(str).str.strip()
@@ -188,7 +164,6 @@ def get_clean_data():
     df = df[(df["价格"] > 0) & (df["价格"] < 100000)]
     return df
 
-@st.cache_data(ttl=60, show_spinner=False)
 def get_latest_history():
     df = get_clean_data()
     latest = {}
@@ -205,46 +180,75 @@ def get_latest_history():
             }
     return latest
 
-def get_all_price_records_df():
-    all_data = fetch_all_records_cached("price_records")
-    return pd.DataFrame(all_data) if all_data else pd.DataFrame()
-
-@st.cache_data(ttl=60, show_spinner=False)
-def get_price_rules_from_db():
+def _fetch_price_rules():
     res = supabase.table("price_rules").select("model, buy, sell").execute()
     rules = {}
     for r in res.data:
         rules[r["model"]] = {"buy": r["buy"], "sell": r["sell"]}
     return rules
 
-# ==================== 业务函数 ====================
+def get_price_rules_from_db():
+    return cached_get("price_rules", _fetch_price_rules, ttl=60)
+
 def get_favorites():
     res = supabase.table("user_favorites").select("model").execute()
     return {item["model"] for item in res.data} if res.data else set()
 
+def get_alert_threshold():
+    res = supabase.table("settings").select("alert_threshold").limit(1).execute()
+    return res.data[0]["alert_threshold"] if res.data else 10
+
+# ==================== 业务操作函数 ====================
 def toggle_favorite(model):
     favs = get_favorites()
     if model in favs:
         supabase.table("user_favorites").delete().eq("model", model).execute()
     else:
         supabase.table("user_favorites").insert({"model": model}).execute()
-    get_clean_data.clear()
-    fetch_all_records_cached.clear()
+    clear_cache("all_price_records")
 
 def save_price_rule(model, buy, sell):
     supabase.table("price_rules").upsert(
         {"model": model, "buy": buy, "sell": sell}, on_conflict="model"
     ).execute()
-    get_price_rules_from_db.clear()
+    clear_cache("price_rules")
     st.rerun()
-
-def get_alert_threshold():
-    res = supabase.table("settings").select("alert_threshold").limit(1).execute()
-    return res.data[0]["alert_threshold"] if res.data else 10
 
 def set_alert_threshold(v):
     supabase.table("settings").upsert({"id": 1, "alert_threshold": v}, on_conflict="id").execute()
 
+def save_batch_one_by_one(records):
+    success_count = 0
+    for record in records:
+        try:
+            supabase.table("price_records").insert(record).execute()
+            success_count += 1
+        except Exception as e:
+            logger.error(f"保存失败: {e}")
+            continue
+    if success_count > 0:
+        clear_cache("all_price_records")
+    return success_count
+
+def update_record(id, data):
+    try:
+        supabase.table("price_records").update(data).eq("id", id).execute()
+        clear_cache("all_price_records")
+        return True
+    except Exception as e:
+        logger.error(f"更新失败: {e}")
+        return False
+
+def delete_record(id):
+    try:
+        supabase.table("price_records").delete().eq("id", id).execute()
+        clear_cache("all_price_records")
+        return True
+    except Exception as e:
+        logger.error(f"删除失败: {e}")
+        return False
+
+# ==================== 解析辅助函数 ====================
 def extract_remark(line):
     box_keywords = ["好盒", "压盒", "瑕疵", "盒损", "烂盒", "破盒", "全新", "微压"]
     bag_keywords = ["纸袋", "M袋", "S袋", "礼袋", "礼品袋", "M号袋", "S袋", "XL袋", "L袋", "大袋", "小袋", "有袋", "无袋", "袋子"]
@@ -393,34 +397,6 @@ def get_trend(days=7):
         trends.append({"model": m, "diff": diff, "abs_diff": abs(diff), "last": new})
     return sorted(trends, key=lambda x: -x["abs_diff"])
 
-def save_batch_one_by_one(records):
-    success_count = 0
-    for record in records:
-        try:
-            supabase.table("price_records").insert(record).execute()
-            success_count += 1
-        except Exception as e:
-            logger.error(f"保存失败: {e}")
-            continue
-    if success_count > 0:
-        get_clean_data.clear()
-        fetch_all_records_cached.clear()
-    return success_count
-
-def update_record(id, data):
-    try:
-        return supabase.table("price_records").update(data).eq("id", id).execute()
-    except Exception as e:
-        logger.error(f"更新失败 id={id}: {e}")
-        return None
-
-def delete_record(id):
-    try:
-        return supabase.table("price_records").delete().eq("id", id).execute()
-    except Exception as e:
-        logger.error(f"删除失败 id={id}: {e}")
-        return None
-
 def render_grid_buttons(items, columns=3, prefix=""):
     if not items:
         return
@@ -439,6 +415,22 @@ def paginate(items, page_size, current_page):
     start_idx = (current_page - 1) * page_size
     end_idx = start_idx + page_size
     return items[start_idx:end_idx]
+
+# ==================== 会话状态初始化（尽早执行） ====================
+if "parse_result" not in st.session_state:
+    st.session_state.parse_result = pd.DataFrame()
+if "original_parse" not in st.session_state:
+    st.session_state.original_parse = []
+if "selected_model" not in st.session_state:
+    st.session_state.selected_model = ""
+if "scroll_to_bottom" not in st.session_state:
+    st.session_state.scroll_to_bottom = False
+if "parsing_in_progress" not in st.session_state:
+    st.session_state.parsing_in_progress = False
+if "saving_in_progress" not in st.session_state:
+    st.session_state.saving_in_progress = False
+if "parse_result_status_filter" not in st.session_state:
+    st.session_state.parse_result_status_filter = "全部"
 
 # ==================== 主界面 ====================
 st.markdown('<div class="main-title">🧩 乐高报价分析系统</div>', unsafe_allow_html=True)
@@ -571,7 +563,6 @@ if not parse_df.empty:
         st.subheader("📋 解析结果")
         status_counts = parse_df["状态"].value_counts().to_dict()
         
-        # 筛选器
         col_f1, col_f2 = st.columns([3, 1])
         with col_f1:
             options = ["全部"] + list(status_counts.keys())
@@ -669,7 +660,7 @@ with st.expander("⚙️ 系统设置", expanded=False):
     if new_th != th:
         set_alert_threshold(new_th)
 
-# --- 主要功能选项卡（美化后）---
+# --- 主要功能选项卡 ---
 df = get_clean_data()
 all_models = sorted(df["型号"].unique()) if not df.empty else []
 tab1, tab2, tab3, tab4 = st.tabs(["⭐ 我的收藏", "📈 涨跌排行", "📊 价格预警", "🔎 价格筛选"])
@@ -758,6 +749,7 @@ if not df.empty:
         isfav = target in get_favorites()
         if st.button("⭐ 取消收藏" if isfav else "☆ 收藏"):
             toggle_favorite(target)
+            st.rerun()
         
         rules = get_price_rules_from_db()
         rule = rules.get(target, {"buy":0, "sell":0})
@@ -783,8 +775,6 @@ if not df.empty:
                 for did in del_ids: delete_record(did)
                 for _, row in edited[~edited["删除"]].iterrows():
                     update_record(row["id"], {"model": row["型号"], "price": row["价格"], "remark": row["备注"]})
-                get_clean_data.clear()
-                fetch_all_records_cached.clear()
                 st.success("✅ 操作成功")
             
             fig = px.line(model_data.sort_values("时间"), x="时间", y="价格", markers=True)
