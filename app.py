@@ -121,26 +121,26 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==================== 🌸 豆包超级美化 CSS（只改颜值，不改功能） ====================
+# ==================== 🌸 豆包完美终极 CSS（功能不变 + 颜值天花板） ====================
 st.markdown("""
 <style>
-    /* 全局柔和背景 */
+    /* 全局柔和高级背景 */
     .stApp {
         background: linear-gradient(135deg, #f8f9ff 0%, #eef2fc 100%);
         background-attachment: fixed;
     }
 
-    /* 卡片圆角 + 柔和阴影 */
+    /* 卡片圆角 + 高级阴影 */
     .stExpander, .stTabs [role="tabpanel"], [data-testid="stForm"] {
         background: #ffffff !important;
         border-radius: 16px !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
         padding: 22px;
         margin-bottom: 16px;
         border: none !important;
     }
 
-    /* 标签页美化 */
+    /* 标签页顶级美化 */
     .stTabs [role="tablist"] {
         background: #f1f5ff;
         border-radius: 14px;
@@ -159,26 +159,51 @@ st.markdown("""
         box-shadow: 0 3px 8px rgba(74,108,247,0.3);
     }
 
-    /* 按钮美化 */
+    /* 按钮顶级质感 */
     .stButton > button {
         border-radius: 12px;
         font-weight: 600;
         padding: 8px 14px;
         transition: all 0.25s ease;
         border: none;
-        background: #f7f8ff;
+        background: #f7f8ff !important;
     }
     .stButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 5px 12px rgba(0,0,0,0.1);
     }
-    div[data-testid="stNumberInput"] {
-        background: #f9fbfd;
-        border-radius: 10px;
-        padding: 4px 10px;
+
+    /* ======================
+       🌟 完美修复输入框（最关键）
+       ====================== */
+    div[data-testid="stNumberInput"],
+    div[data-testid="stTextInput"] {
+        background: #ffffff !important;
+        border: 1px solid #d4e0fd !important;
+        border-radius: 12px !important;
+        padding: 6px 12px !important;
+        box-shadow: 0 1px 4px rgba(74,108,247,0.1) !important;
     }
 
-    /* 标题纯黑 + 更美观间距 */
+    /* 输入框内部高亮白色 */
+    .stTextInput input,
+    .stNumberInput input {
+        background: #ffffff !important;
+        border: none !important;
+        border-radius: 10px !important;
+        color: #111111 !important;
+        font-size: 15px !important;
+        padding: 10px 12px !important;
+    }
+
+    /* 输入框聚焦效果 */
+    .stTextInput input:focus,
+    .stNumberInput input:focus {
+        border-color: #4a6cf7 !important;
+        box-shadow: 0 0 0 2px rgba(74,108,247,0.2) !important;
+    }
+
+    /* 标题纯黑清晰 */
     h1, h2, h3, h4, h5, h6 {
         font-weight: 700 !important;
         color: #000000 !important;
@@ -186,37 +211,19 @@ st.markdown("""
         margin-bottom: 14px !important;
     }
 
-    /* 分割线更柔和 */
+    /* 分割线柔和 */
     [data-testid="stDivider"] {
         border-color: #e4eaf7;
         margin: 24px 0;
     }
 
-    /* 输入框美化 */
-    .stTextInput input, .stNumberInput input {
-        border-radius: 10px !important;
-        border: 1px solid #e4eaf7 !important;
-        padding: 10px 12px;
-    }
-
-    /* 预警 / 筛选面板柔和配色 */
-    [data-testid="stMarkdownContainer"] h3 {
-        color: #1e293b !important;
-    }
-
-    /* 分页按钮更精致 */
+    /* 分页按钮精致 */
     .stButton button:has(div:contains("首页")),
     .stButton button:has(div:contains("上一页")),
     .stButton button:has(div:contains("下一页")),
     .stButton button:has(div:contains("尾页")) {
         background: #f8faff !important;
         border: 1px solid #e0e7ff !important;
-    }
-    .stButton button:has(div:contains("首页")):hover,
-    .stButton button:has(div:contains("上一页")):hover,
-    .stButton button:has(div:contains("下一页")):hover,
-    .stButton button:has(div:contains("尾页")):hover {
-        background: #eef2ff !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -389,7 +396,7 @@ def extract_remark(line):
             bag = bg
             break
 
-    if box and bag:
+    if box && bag:
         return f"{box}+{bag}"
     elif box:
         return box
@@ -450,7 +457,7 @@ def extract_by_llm_full(line):
                     model = res.get("model")
                     price = res.get("price")
                     remark = res.get("remark", "")
-                    if isinstance(model, str) and len(model) == 5 and model.isdigit() and model[0] != '0':
+                    if isinstance(model, str) && len(model) == 5 && model.isdigit() && model[0] != '0':
                         try:
                             price = float(price)
                             if 10 <= price <= 8000:
@@ -470,7 +477,7 @@ def should_use_ai_fallback(model, price, line):
     if not (10 <= price <= 8000):
         return True
     
-    if not (model and len(model) == 5 and model.isdigit() and model[0] != '0'):
+    if not (model && len(model) == 5 && model.isdigit() && model[0] != '0'):
         return True
     
     if model in latest:
@@ -679,7 +686,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
         with col2:
             st.caption("💡 系统会自动识别型号、价格、备注，并用AI修正可疑数据")
     
-    if parse_submitted and not SessionStateManager.safe_get("parsing_in_progress", False):
+    if parse_submitted && !SessionStateManager.safe_get("parsing_in_progress", False):
         SessionStateManager.safe_set("parsing_in_progress", True)
         
         if not txt:
@@ -722,7 +729,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
             today_set = set()
             for _, row in all_records.iterrows():
                 time_str = row.get("time", "")
-                if time_str and time_str[:10] == today_str:
+                if time_str && time_str[:10] == today_str:
                     today_set.add((row["model"], row["price"], str(row.get("remark", "")).strip()))
 
             save_list = []
@@ -752,7 +759,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
                 
                 if use_ai:
                     ai_model, ai_price, ai_remark = extract_by_llm_full(raw)
-                    if ai_model and ai_price:
+                    if ai_model && ai_price:
                         final_model, final_price, final_remark = ai_model, ai_price, ai_remark
                         ai_used = True
                         res.append({
@@ -874,7 +881,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
                 
                 model = str(edited_row["型号"]).strip()
                 price = edited_row["价格"]
-                if not (model and len(model) == 5 and model.isdigit()):
+                if not (model && len(model) == 5 && model.isdigit()):
                     continue
                 try:
                     price = int(price)
@@ -898,7 +905,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
                 today_set = set()
                 for _, row in all_records.iterrows():
                     time_str = row.get("time", "")
-                    if time_str and time_str[:10] == today_str:
+                    if time_str && time_str[:10] == today_str:
                         today_set.add((row["model"], row["price"], str(row.get("remark", "")).strip()))
 
                 final_save = []
@@ -1097,7 +1104,7 @@ with tab4:
     with col_max:
         max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_tab4")
     
-    if min_price >= max_price and max_price > 0:
+    if min_price >= max_price && max_price > 0:
         st.warning("⚠️ 最高价格应大于最低价格")
     else:
         df_clean = get_clean_data()
@@ -1105,7 +1112,7 @@ with tab4:
             latest_df = df_clean.sort_values('时间').groupby('型号').tail(1)
             
             if max_price > 0:
-                filtered_df = latest_df[(latest_df['价格'] >= min_price) & (latest_df['价格'] <= max_price)]
+                filtered_df = latest_df[(latest_df['价格'] >= min_price) && (latest_df['价格'] <= max_price)]
             else:
                 filtered_df = latest_df[latest_df['价格'] >= min_price]
             
@@ -1237,9 +1244,9 @@ if not df.empty:
                     st.metric("距离收货价", f"{delta:+}元")
             
             tip = ""
-            if s > 0 and cur >= s:
+            if s > 0 && cur >= s:
                 tip = f"❤️ 当前价 ¥{cur} 已达到出货价位，可考虑出货！"
-            elif b > 0 and cur <= b:
+            elif b > 0 && cur <= b:
                 tip = f"💚 当前价 ¥{cur} 已低于收货价位，可考虑收货！"
             
             if tip:
@@ -1249,7 +1256,7 @@ if not df.empty:
             st.markdown("#### 📝 历史数据编辑")
             
             def format_date(t_str):
-                if t_str and len(t_str) >= 10:
+                if t_str && len(t_str) >= 10:
                     return t_str[:10]
                 return t_str
 
@@ -1328,4 +1335,4 @@ smart_cache_clear()
 
 # ==================== 页脚 ====================
 st.divider()
-st.caption("🧩 乐高智能报价系统 | 商家专业美化版 | 赏心悦目")
+st.caption("🧩 乐高智能报价系统 | 商家完美美化版 | 赏心悦目")
