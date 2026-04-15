@@ -116,7 +116,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==================== 🌸 终极商用美化CSS ====================
+/* ==================== 🌸 终极商用美化CSS ==================== */
 st.markdown("""
 <style>
     /* 全局柔和高级背景 */
@@ -177,20 +177,22 @@ st.markdown("""
         box-shadow: 0 5px 12px rgba(0,0,0,0.1);
     }
 
-    /* 🔥 核心主按钮：蓝底白字（统一风格） */
-    button[kind="primary"], 
-    .stButton>button:has(div:has(div:has(div:has(div:has-text("一键解析报价"))))),
-    .stButton>button:has(div:has(div:has(div:has(div:has-text("保存并更新数据"))))),
-    .stButton>button:has(div:has(div:has(div:has(div:has-text("保存修改 & 删除选中"))))) {
+    /* 🔥 最终精准修复：三个主按钮 统一 深蓝色背景 + 白色文字 */
+    button[kind="primary"],
+    .stButton button:has(div:has-text("一键解析报价")),
+    .stButton button:has(div:has-text("保存并更新数据")),
+    .stButton button:has(div:has-text("保存修改 & 删除选中")) {
         background: #2A5BD9 !important;
         color: #FFFFFF !important;
+        font-weight: 600 !important;
+        border-radius: 12px !important;
         box-shadow: 0 4px 10px rgba(42,91,217,0.25) !important;
     }
 
     button[kind="primary"]:hover,
-    .stButton>button:has(div:has(div:has(div:has(div:has-text("一键解析报价"))))):hover,
-    .stButton>button:has(div:has(div:has(div:has(div:has-text("保存并更新数据"))))):hover,
-    .stButton>button:has(div:has(div:has(div:has(div:has-text("保存修改 & 删除选中"))))):hover {
+    .stButton button:has(div:has-text("一键解析报价")):hover,
+    .stButton button:has(div:has-text("保存并更新数据")):hover,
+    .stButton button:has(div:has-text("保存修改 & 删除选中")):hover {
         background: #1E4AC2 !important;
         color: #FFFFFF !important;
         transform: translateY(-2px);
