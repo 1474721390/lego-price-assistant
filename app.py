@@ -406,28 +406,24 @@ if SessionStateManager.safe_get("clear_parse_result", False):
     SessionStateManager.safe_set("original_parse", [])
     SessionStateManager.safe_set("clear_parse_result", False)
 
-# --- 批量录入区域（修复解析无响应问题） ---
+# --- 批量录入区域（修复二次点击无反应） ---
 with st.expander("📝 批量录入", expanded=True):
-    with st.form("batch_input_form"):
+    # 使用 form 的 clear_on_submit=False，但我们会手动处理
+    with st.form("batch_input_form", clear_on_submit=False):
         txt = st.text_area("粘贴内容", height=200, key="batch_input_text")
         parse_submitted = st.form_submit_button("🔍 解析", type="primary", use_container_width=True)
     
-    if parse_submitted and not SessionStateManager.safe_get("parsing_in_progress", False):
-        SessionStateManager.safe_set("parsing_in_progress", True)
-        
-        try:
-            if not txt:
-                st.warning("请输入内容")
-                SessionStateManager.safe_set("parsing_in_progress", False)
-            else:
+    if parse_submitted:
+        if not txt:
+            st.warning("请输入内容")
+        else:
+            # 使用 spinner 显示解析进度，不阻塞界面
+            with st.spinner("正在解析..."):
                 lines = txt.strip().splitlines()
                 total_lines = len(lines)
                 
-                # 初始化结果列表（直接按行索引构造，避免后续 None 值）
+                # 初始化结果列表
                 res = [None] * total_lines
-                
-                progress_bar = st.progress(0, text="开始解析...")
-                status_text = st.empty()
                 
                 # 第一遍：正则提取
                 regex_results = []  # 保存每行的 (model, price, remark, raw_line)
@@ -437,8 +433,6 @@ with st.expander("📝 批量录入", expanded=True):
                     if not m or not p:
                         res[idx] = {"型号":"","价格":0,"备注":"","原始":li,"状态":"❌ 解析失败"}
                 
-                progress_bar.progress(0.3, text="正则解析完成，检查可疑项...")
-                
                 # 收集需要 AI 的行索引
                 ai_indices = []
                 for idx, (m, p, r, li) in enumerate(regex_results):
@@ -446,7 +440,6 @@ with st.expander("📝 批量录入", expanded=True):
                         ai_indices.append(idx)
                 
                 if ai_indices:
-                    progress_bar.progress(0.5, text=f"发现 {len(ai_indices)} 条可疑数据，正在批量调用AI...")
                     ai_lines = [regex_results[i][3] for i in ai_indices]
                     ai_results = extract_by_llm_batch(ai_lines)
                     for i, idx in enumerate(ai_indices):
@@ -480,9 +473,7 @@ with st.expander("📝 批量录入", expanded=True):
                             "状态": "✅ 有效"
                         }
                 
-                progress_bar.progress(0.8, text="去重与当日检查...")
-                
-                # 构建有效条目列表用于去重
+                # 去重与当日检查
                 valid_entries = []
                 for entry in res:
                     if entry and entry["型号"] and entry["价格"] > 0:
@@ -512,13 +503,11 @@ with st.expander("📝 批量录入", expanded=True):
                 for key, item in unique_batch.items():
                     m, p, r = item["model"], item["price"], item["remark"]
                     if (m, p, r) in today_set:
-                        # 标记跳过
                         for idx, entry in enumerate(res):
                             if entry and entry.get("型号") == m and entry.get("价格") == p:
                                 res[idx]["状态"] = "⏭️ 已跳过（当天重复）"
                                 break
                         continue
-                    # 查找该条目对应的状态
                     status = next((e["状态"] for e in res if e and e.get("型号") == m and e.get("价格") == p), "")
                     if "✅ 有效" in status:
                         save_list.append({
@@ -529,14 +518,8 @@ with st.expander("📝 批量录入", expanded=True):
                         })
                         today_set.add((m, p, r))
                 
-                progress_bar.progress(1.0, text="解析完成")
-                status_text.empty()
-                progress_bar.empty()
-                
-                # 过滤掉 None（正常情况下不应有）
+                # 过滤与排序
                 res_filtered = [r for r in res if r is not None]
-                
-                # 排序
                 priority_order = {
                     "⚠️ 需手动核实": 1,
                     "❌ 解析失败": 2,
@@ -550,21 +533,15 @@ with st.expander("📝 批量录入", expanded=True):
                 SessionStateManager.safe_set("original_parse", res_sorted.copy())
                 
                 if save_list:
-                    with st.spinner(f"正在保存 {len(save_list)} 条有效数据..."):
-                        saved_count = save_batch_one_by_one(save_list)
+                    saved_count = save_batch_one_by_one(save_list)
                     st.success(f"✅ 解析并自动保存 {saved_count} 条有效数据")
+                    # 清空标记，让下次解析显示新结果
                     SessionStateManager.safe_set("clear_parse_result", True)
                     st.rerun()
                 else:
                     st.info("没有新的有效数据需要保存")
-        
-        except Exception as e:
-            logger.error(f"解析过程异常: {e}")
-            st.error(f"解析出错，请重试。错误信息：{e}")
-        finally:
-            SessionStateManager.safe_set("parsing_in_progress", False)
     
-    # 显示解析结果表格（与原版完全一致）
+    # 显示解析结果表格（保持不变）
     parse_df = SessionStateManager.safe_get("parse_result", pd.DataFrame())
     if not parse_df.empty:
         status_counts = parse_df["状态"].value_counts().to_dict()
