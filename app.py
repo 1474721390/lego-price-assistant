@@ -667,66 +667,66 @@ with st.expander("📝 批量录入", expanded=True):
             skipped = status_counts.get("⏭️ 已跳过（当天重复）", 0)
             st.markdown(f"📊 **本轮解析**：总 {total} 条｜✅ 有效 {valid}｜🤖 AI修正 {ai_fixed}｜✏️ 需手动 {manual}｜❌ 失败 {failed}｜⏭️ 跳过 {skipped}")
             
-                        # ========== 新增：快速采纳区域（当筛选为需手动核实时显示） ==========
-            if manual > 0 and (filter_status == "⚠️ 需手动核实" or filter_status == "全部"):
-                st.divider()
-                st.subheader("⚡ 快速采纳需手动核实的数据")
-                st.caption("点击下方按钮可直接将对应记录保存到数据库，状态将变为“✅ 有效（手动采纳）”。")
-                
-                # 获取当前视图中需手动核实的行
-                manual_rows = df_display[df_display["状态"] == "⚠️ 需手动核实"]
-                
-                if not manual_rows.empty:
-                    # 批量采纳按钮
-                    if st.button("🚀 一键采纳全部可见的需手动核实数据", type="secondary", use_container_width=True, key="adopt_all_manual"):
-                        adopted_count = 0
-                        for _, row in manual_rows.iterrows():
-                            if quick_adopt_record(row["型号"], row["价格"], row["备注"]):
-                                adopted_count += 1
-                        if adopted_count > 0:
-                            st.success(f"✅ 成功采纳 {adopted_count} 条数据")
-                            # 更新 parse_result 中对应行的状态
-                            updated_parse = parse_df.copy()
-                            for idx, r in updated_parse.iterrows():
-                                if r["状态"] == "⚠️ 需手动核实":
-                                    match = manual_rows[(manual_rows["型号"] == r["型号"]) & (manual_rows["价格"] == r["价格"]) & (manual_rows["备注"] == r["备注"])]
-                                    if not match.empty:
-                                        updated_parse.at[idx, "状态"] = "✅ 有效（手动采纳）"
-                            SessionStateManager.safe_set("parse_result", updated_parse)
-                            smart_cache_clear()
-                            st.rerun()
-                        else:
-                            st.warning("没有成功采纳任何数据")
-                    
-                    st.divider()
-                    st.caption("或逐条采纳：")
-                    
-                    # 逐条采纳按钮
-                    for i, (_, row) in enumerate(manual_rows.iterrows()):
-                        col1, col2, col3, col4 = st.columns([2, 1, 2, 1])
-                        with col1:
-                            st.write(f"**{row['型号']}**")
-                        with col2:
-                            st.write(f"¥{row['价格']}")
-                        with col3:
-                            st.write(row['备注'] if row['备注'] else "—")
-                        with col4:
-                            if st.button("✅ 采纳", key=f"adopt_{row['型号']}_{row['价格']}_{i}"):
-                                if quick_adopt_record(row["型号"], row["价格"], row["备注"]):
+                                   # ========== 修改：快速采纳区域独立放置（修复 expander 异常） ==========
+            # 只要有需手动核实的数据，无论当前筛选条件如何，都显示快速采纳面板
+            if manual > 0:
+                # 使用 try-except 防止 expander 上下文异常
+                try:
+                    with st.expander("⚡ 快速采纳需手动核实的数据", expanded=True):
+                        st.markdown("点击下方按钮可直接将对应记录保存到数据库，状态将变为“✅ 有效（手动采纳）”。")
+                        
+                        # 获取 parse_df 中所有需手动核实的行（不受筛选影响）
+                        manual_rows_all = parse_df[parse_df["状态"] == "⚠️ 需手动核实"].copy()
+                        
+                        if not manual_rows_all.empty:
+                            # 批量采纳按钮
+                            if st.button("🚀 一键采纳全部需手动核实数据", type="secondary", use_container_width=True, key="batch_adopt_all"):
+                                adopted_count = 0
+                                for _, row in manual_rows_all.iterrows():
+                                    if quick_adopt_record(row["型号"], row["价格"], row["备注"]):
+                                        adopted_count += 1
+                                if adopted_count > 0:
+                                    st.success(f"✅ 成功采纳 {adopted_count} 条数据")
+                                    # 更新状态
                                     updated_parse = parse_df.copy()
-                                    for idx, r in updated_parse.iterrows():
-                                        if (r["状态"] == "⚠️ 需手动核实" and r["型号"] == row["型号"] 
-                                            and r["价格"] == row["价格"] and r["备注"] == row["备注"]):
-                                            updated_parse.at[idx, "状态"] = "✅ 有效（手动采纳）"
-                                            break
+                                    updated_parse.loc[updated_parse["状态"] == "⚠️ 需手动核实", "状态"] = "✅ 有效（手动采纳）"
                                     SessionStateManager.safe_set("parse_result", updated_parse)
                                     smart_cache_clear()
-                                    st.success(f"已采纳 {row['型号']}")
                                     st.rerun()
                                 else:
-                                    st.error("采纳失败，请重试")
-                else:
-                    st.info("当前视图中没有需手动核实的数据")
+                                    st.warning("没有成功采纳任何数据")
+                            
+                            st.divider()
+                            st.caption("或逐条采纳：")
+                            
+                            # 逐条采纳（使用稳定的 key）
+                            for idx, row in manual_rows_all.iterrows():
+                                # 用原始索引生成唯一 key
+                                unique_key = f"adopt_{idx}_{hash(row['型号'] + str(row['价格']) + str(row['备注']))}"
+                                col1, col2, col3, col4 = st.columns([2, 1, 2, 1])
+                                with col1:
+                                    st.write(f"**{row['型号']}**")
+                                with col2:
+                                    st.write(f"¥{row['价格']}")
+                                with col3:
+                                    st.write(row['备注'] if row['备注'] else "—")
+                                with col4:
+                                    if st.button("✅ 采纳", key=unique_key):
+                                        if quick_adopt_record(row["型号"], row["价格"], row["备注"]):
+                                            # 仅更新当前行的状态
+                                            updated_parse = parse_df.copy()
+                                            updated_parse.loc[idx, "状态"] = "✅ 有效（手动采纳）"
+                                            SessionStateManager.safe_set("parse_result", updated_parse)
+                                            smart_cache_clear()
+                                            st.success(f"已采纳 {row['型号']}")
+                                            st.rerun()
+                                        else:
+                                            st.error("采纳失败，请重试")
+                        else:
+                            st.info("当前没有需手动核实的数据")
+                except Exception as e:
+                    st.warning("快速采纳面板加载失败，请刷新页面或使用下方表格编辑保存。")
+                    logger.error(f"快速采纳 expander 异常: {e}")
             # ========== 快速采纳区域结束 ==========
             
             if st.button("💾 修改并保存有效数据", type="primary", use_container_width=True,
