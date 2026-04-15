@@ -397,9 +397,8 @@ def smart_cache_clear():
         except RuntimeError:
             pass
 
-# ==================== 新增：快速采纳函数 ====================
 def quick_adopt_record(model, price, remark):
-    """将单条记录保存到数据库，并标记为手动采纳"""
+    """快速采纳单条记录"""
     try:
         record = {
             "time": datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S"),
@@ -581,7 +580,7 @@ with st.expander("📝 批量录入", expanded=True):
             SessionStateManager.safe_set("parsing_in_progress", False)
             st.rerun()
     
-    # --- 显示解析结果表格 ---
+    # 显示解析结果表格
     parse_df = SessionStateManager.safe_get("parse_result", pd.DataFrame())
     if not parse_df.empty:
         status_counts = parse_df["状态"].value_counts().to_dict()
@@ -667,17 +666,15 @@ with st.expander("📝 批量录入", expanded=True):
             skipped = status_counts.get("⏭️ 已跳过（当天重复）", 0)
             st.markdown(f"📊 **本轮解析**：总 {total} 条｜✅ 有效 {valid}｜🤖 AI修正 {ai_fixed}｜✏️ 需手动 {manual}｜❌ 失败 {failed}｜⏭️ 跳过 {skipped}")
             
-                                                          # ========== 修复：快速采纳区域（移除 expander，避免 API 异常） ==========
+            # ========== 快速采纳区域（无 expander，避免异常） ==========
             if manual > 0:
                 st.divider()
                 st.subheader("⚡ 快速采纳需手动核实的数据")
                 st.markdown("点击下方按钮可直接将对应记录保存到数据库，状态将变为“✅ 有效（手动采纳）”。")
                 
-                # 获取所有需手动核实的行（不受筛选影响）
                 manual_rows_all = parse_df[parse_df["状态"] == "⚠️ 需手动核实"].copy()
                 
                 if not manual_rows_all.empty:
-                    # 批量采纳按钮
                     if st.button("🚀 一键采纳全部需手动核实数据", type="secondary", use_container_width=True, key="batch_adopt_all"):
                         adopted_count = 0
                         for _, row in manual_rows_all.iterrows():
@@ -696,7 +693,6 @@ with st.expander("📝 批量录入", expanded=True):
                     st.divider()
                     st.caption("或逐条采纳：")
                     
-                    # 逐条采纳
                     for idx, row in manual_rows_all.iterrows():
                         unique_key = f"adopt_{idx}_{hash(row['型号'] + str(row['价格']) + str(row['备注']))}"
                         col1, col2, col3, col4 = st.columns([2, 1, 2, 1])
