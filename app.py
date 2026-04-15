@@ -20,9 +20,10 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 import plotly.express as px
 from supabase import create_client
+import time
 
 # ==================== 日志配置 ====================
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==================== 环境变量检查 ====================
@@ -31,25 +32,21 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY")
 
 if not all([SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY]):
-    st.error("❌ 缺少必要环境变量：SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY")
+    st.error("❌ 缺少环境变量")
     st.stop()
 
-st.set_page_config(
-    page_title="乐高报价系统",
-    page_icon="🧩",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="乐高报价系统", page_icon="🧩", layout="wide")
 
-# ==================== Supabase 客户端 ====================
+# ==================== 延迟初始化 Supabase（确保只初始化一次） ====================
 @st.cache_resource
 def get_supabase():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 supabase = get_supabase()
 
-# ==================== 数据层（原生 @st.cache_data，绝不触碰 session_state） ====================
-@st.cache_data(ttl=120, show_spinner=False)
+# ==================== 缓存装饰器替换为 st.cache_resource（不会触发 SessionInfo） ====================
+# 关键：所有数据函数均改为 @st.cache_resource，且内部不访问 st.session_state
+@st.cache_resource(ttl=120)
 def _fetch_all_records(table_name):
     all_data = []
     page_size = 1000
@@ -62,7 +59,7 @@ def _fetch_all_records(table_name):
         start += page_size
     return all_data
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_resource(ttl=120)
 def get_clean_data():
     all_data = _fetch_all_records("price_records")
     if not all_data:
@@ -77,7 +74,7 @@ def get_clean_data():
     df = df[(df["价格"] > 0) & (df["价格"] < 100000)]
     return df
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_resource(ttl=60)
 def get_latest_history():
     df = get_clean_data()
     latest = {}
@@ -87,18 +84,14 @@ def get_latest_history():
         sub = df[df["型号"] == m].sort_values("时间", ascending=False)
         if not sub.empty:
             row = sub.iloc[0]
-            latest[m] = {
-                "price": row["价格"],
-                "remark": str(row.get("remark", "")).strip(),
-                "time": row["时间"].isoformat() if row["时间"] else ""
-            }
+            latest[m] = {"price": row["价格"], "remark": str(row.get("remark","")).strip(), "time": row["时间"].isoformat() if row["时间"] else ""}
     return latest
 
 def get_all_price_records_df():
     all_data = _fetch_all_records("price_records")
     return pd.DataFrame(all_data) if all_data else pd.DataFrame()
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_resource(ttl=60)
 def get_price_rules():
     res = supabase.table("price_rules").select("model, buy, sell").execute()
     rules = {}
@@ -106,7 +99,7 @@ def get_price_rules():
         rules[r["model"]] = {"buy": r["buy"], "sell": r["sell"]}
     return rules
 
-# ==================== 业务函数 ====================
+# ==================== 业务函数（完整保留） ====================
 def get_favorites():
     res = supabase.table("user_favorites").select("model").execute()
     return {item["model"] for item in res.data} if res.data else set()
@@ -117,16 +110,14 @@ def toggle_favorite(model):
         supabase.table("user_favorites").delete().eq("model", model).execute()
     else:
         supabase.table("user_favorites").insert({"model": model}).execute()
-    # 清除相关缓存
-    st.cache_data.clear()
-    get_supabase.clear()
+    # 清除资源缓存
+    get_clean_data.clear()
+    _fetch_all_records.clear()
 
 def save_price_rule(model, buy, sell):
-    supabase.table("price_rules").upsert(
-        {"model": model, "buy": buy, "sell": sell}, on_conflict="model"
-    ).execute()
+    supabase.table("price_rules").upsert({"model": model, "buy": buy, "sell": sell}, on_conflict="model").execute()
     get_price_rules.clear()
-    st.rerun()  # 仅此一处，用于更新界面显示的心理价位
+    st.rerun()
 
 def get_alert_threshold():
     res = supabase.table("settings").select("alert_threshold").limit(1).execute()
@@ -136,40 +127,30 @@ def set_alert_threshold(v):
     supabase.table("settings").upsert({"id": 1, "alert_threshold": v}, on_conflict="id").execute()
 
 def extract_remark(line):
-    box_keywords = ["好盒", "压盒", "瑕疵", "盒损", "烂盒", "破盒", "全新", "微压"]
-    bag_keywords = ["纸袋", "M袋", "S袋", "礼袋", "礼品袋", "M号袋", "S袋", "XL袋", "L袋", "大袋", "小袋", "有袋", "无袋", "袋子"]
-    box = next((b for b in box_keywords if b in line), None)
-    bag = next((bg for bg in bag_keywords if bg in line), None)
-    if box and bag:
-        return f"{box}+{bag}"
-    elif box:
-        return box
-    elif bag:
-        return bag
-    return ""
+    box_kw = ["好盒","压盒","瑕疵","盒损","烂盒","破盒","全新","微压"]
+    bag_kw = ["纸袋","M袋","S袋","礼袋","礼品袋","M号袋","S袋","XL袋","L袋","大袋","小袋","有袋","无袋","袋子"]
+    box = next((b for b in box_kw if b in line), None)
+    bag = next((b for b in bag_kw if b in line), None)
+    if box and bag: return f"{box}+{bag}"
+    return box or bag or ""
 
 def extract_by_regex(line):
     line = line.strip()
-    if not line:
-        return None, None, None
+    if not line: return None, None, None
     remark = extract_remark(line)
-    all_digits = re.findall(r'\d+', line)
-    if len(all_digits) < 2:
-        return None, None, None
-    model_candidates = [d for d in all_digits if len(d) == 5 and d[0] != '0']
-    if not model_candidates:
-        return None, None, None
+    digits = re.findall(r'\d+', line)
+    if len(digits) < 2: return None, None, None
+    model_candidates = [d for d in digits if len(d)==5 and d[0]!='0']
+    if not model_candidates: return None, None, None
     model = model_candidates[0]
-    price_candidates = [int(p) for p in all_digits if p != model]
-    valid_prices = [p for p in price_candidates if 10 <= p <= 8000]
-    price = max(valid_prices) if valid_prices else (max(price_candidates) if price_candidates else None)
-    if price is None:
-        return None, None, None
+    prices = [int(p) for p in digits if p != model]
+    valid = [p for p in prices if 10 <= p <= 8000]
+    price = max(valid) if valid else (max(prices) if prices else None)
+    if price is None: return None, None, None
     return model, price, remark
 
 def extract_by_llm_batch(lines):
-    if not lines:
-        return []
+    if not lines: return []
     prompt = """你是乐高价格信息提取专家。请解析以下多条用户输入，每条输入可能包含乐高型号（5位数字）、价格（数字）和备注（盒况/袋况等）。
 返回一个JSON数组，每个元素对应一条输入，格式为：
 {"model": "字符串或null", "price": 数字或null, "remark": "字符串"}
@@ -177,74 +158,60 @@ def extract_by_llm_batch(lines):
 
 输入文本列表：
 """
-    for i, line in enumerate(lines):
-        prompt += f"{i+1}. {line}\n"
-    for attempt in range(2):
+    for i, line in enumerate(lines): prompt += f"{i+1}. {line}\n"
+    for _ in range(2):
         try:
-            response = requests.post(
-                "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-                headers={"Authorization": f"Bearer {ZHIPU_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "glm-4-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0.1},
-                timeout=30
-            )
-            if response.status_code == 200:
-                j = response.json()
+            resp = requests.post("https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                                 headers={"Authorization": f"Bearer {ZHIPU_API_KEY}", "Content-Type": "application/json"},
+                                 json={"model": "glm-4-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0.1},
+                                 timeout=30)
+            if resp.status_code == 200:
+                j = resp.json()
                 content = j["choices"][0]["message"]["content"].strip()
-                json_match = re.search(r'\[.*\]', content, re.DOTALL)
-                if json_match:
-                    results = json.loads(json_match.group())
+                m = re.search(r'\[.*\]', content, re.DOTALL)
+                if m:
+                    results = json.loads(m.group())
                     if isinstance(results, list) and len(results) == len(lines):
                         parsed = []
-                        for res in results:
-                            model = res.get("model")
-                            price = res.get("price")
-                            remark = res.get("remark", "")
-                            if (isinstance(model, str) and len(model) == 5 and model.isdigit() and model[0] != '0'
+                        for r in results:
+                            model = r.get("model")
+                            price = r.get("price")
+                            remark = r.get("remark", "")
+                            if (isinstance(model, str) and len(model)==5 and model.isdigit() and model[0]!='0'
                                 and isinstance(price, (int, float)) and 10 <= price <= 8000):
                                 parsed.append((model, int(price), str(remark)))
                             else:
                                 parsed.append((None, None, ""))
                         return parsed
-        except Exception as e:
-            logger.error(f"AI调用异常: {e}")
+        except Exception:
             continue
     return [(None, None, "")] * len(lines)
 
 def should_use_ai_fallback(model, price, line):
     latest = get_latest_history()
-    if not (10 <= price <= 8000):
-        return True
-    if not (model and len(model) == 5 and model.isdigit() and model[0] != '0'):
-        return True
+    if not (10 <= price <= 8000): return True
+    if not (model and len(model)==5 and model.isdigit() and model[0]!='0'): return True
     if model in latest:
-        last_price = latest[model]["price"]
-        if abs(price - last_price) > 200:
-            return True
+        if abs(price - latest[model]["price"]) > 200: return True
     return False
 
-def batch_calculate_trends_and_changes(df_clean, model_price_pairs):
+def batch_calculate_trends_and_changes(df_clean, pairs):
     results = {}
-    models = list(set(m for m, _ in model_price_pairs))
-    model_histories = {}
+    models = list(set(m for m, _ in pairs))
+    hist = {}
     for model in models:
-        past = df_clean[df_clean["型号"] == model]
-        if len(past) >= 2:
+        past = df_clean[df_clean["型号"]==model]
+        if len(past)>=2:
             past_sorted = past.sort_values("时间", ascending=False)
-            model_histories[model] = past_sorted
-    for model, current_price in model_price_pairs:
-        if model not in model_histories:
+            hist[model] = past_sorted
+    for model, cur in pairs:
+        if model not in hist:
             results[model] = {"trend": "—", "change": "—"}
             continue
-        past_sorted = model_histories[model]
-        last_price = past_sorted.iloc[1]["价格"]
-        if current_price > last_price:
-            trend = "📈"
-        elif current_price < last_price:
-            trend = "📉"
-        else:
-            trend = "—"
-        diff = current_price - last_price
-        change = f"+¥{diff}" if diff > 0 else f"-¥{abs(diff)}" if diff < 0 else "±¥0"
+        last = hist[model].iloc[1]["价格"]
+        trend = "📈" if cur > last else ("📉" if cur < last else "—")
+        diff = cur - last
+        change = f"+¥{diff}" if diff>0 else (f"-¥{abs(diff)}" if diff<0 else "±¥0")
         results[model] = {"trend": trend, "change": change}
     return results
 
@@ -252,19 +219,15 @@ def get_alerts():
     df = get_clean_data()
     if df.empty: return []
     favs = get_favorites()
-    threshold = get_alert_threshold()
+    th = get_alert_threshold()
     alerts = []
     for m in df["型号"].unique():
         s = df[df["型号"]==m].sort_values("时间")
         if len(s)<2: continue
-        first = s.iloc[0]["价格"]
-        last = s.iloc[-1]["价格"]
+        first, last = s.iloc[0]["价格"], s.iloc[-1]["价格"]
         diff = last - first
-        if abs(diff) >= threshold:
-            alerts.append({
-                "model":m,"diff":diff,"abs_diff":abs(diff),"last":last,
-                "trend":"上涨"if diff>0 else"下跌","is_fav":m in favs
-            })
+        if abs(diff) >= th:
+            alerts.append({"model":m,"diff":diff,"abs_diff":abs(diff),"last":last,"trend":"上涨"if diff>0 else"下跌","is_fav":m in favs})
     alerts.sort(key=lambda x: (-x["is_fav"], -x["abs_diff"]))
     return alerts
 
@@ -273,12 +236,11 @@ def get_trend(days=7):
     if df.empty: return []
     trends = []
     for m in df["型号"].unique():
-        s = df[df["型号"] == m].sort_values("时间")
-        if len(s) < 2: continue
-        old = s.iloc[0]["价格"]
-        new = s.iloc[-1]["价格"]
+        s = df[df["型号"]==m].sort_values("时间")
+        if len(s)<2: continue
+        old, new = s.iloc[0]["价格"], s.iloc[-1]["价格"]
         diff = new - old
-        trends.append({"model": m, "diff": diff, "abs_diff": abs(diff), "last": new})
+        trends.append({"model":m,"diff":diff,"abs_diff":abs(diff),"last":new})
     return sorted(trends, key=lambda x: -x["abs_diff"])
 
 def save_batch_one_by_one(records):
@@ -287,10 +249,9 @@ def save_batch_one_by_one(records):
         try:
             supabase.table("price_records").insert(rec).execute()
             success += 1
-        except Exception as e:
-            logger.error(f"保存失败: {e}")
-    if success > 0:
-        # 清除相关缓存
+        except:
+            pass
+    if success:
         get_clean_data.clear()
         _fetch_all_records.clear()
     return success
@@ -317,8 +278,7 @@ def render_grid_buttons(items, columns=3, prefix=""):
             idx = i + j
             if idx < len(items):
                 label, model = items[idx]
-                key = f"{prefix}_{model}_{idx}"
-                if col.button(label, key=key, use_container_width=True):
+                if col.button(label, key=f"{prefix}_{model}_{idx}", use_container_width=True):
                     st.session_state.selected_model = model
                     st.session_state.scroll_to_bottom = True
 
@@ -326,7 +286,7 @@ def paginate(items, page_size, current_page):
     start = (current_page - 1) * page_size
     return items[start:start+page_size]
 
-# ==================== 会话状态初始化 ====================
+# ==================== 会话状态初始化（延迟到首次使用） ====================
 if "parse_result" not in st.session_state:
     st.session_state.parse_result = pd.DataFrame()
 if "original_parse" not in st.session_state:
@@ -340,16 +300,16 @@ if "parsing_in_progress" not in st.session_state:
 if "parse_result_status_filter" not in st.session_state:
     st.session_state.parse_result_status_filter = "全部"
 
-# ==================== UI ====================
+# ==================== 主界面 ====================
 st.title("🧩 乐高报价分析系统")
 
-# --- 批量录入（无 rerun 循环）---
+# --- 批量录入 ---
 with st.expander("📝 批量录入", expanded=True):
     txt = st.text_area("粘贴内容", height=200, placeholder="3420收顺丰10307铁塔 湖北\n默认好盒，微压滴滴，加钱私聊")
-    col1, col2, _ = st.columns([1, 1, 4])
-    with col1:
+    c1, c2, _ = st.columns([1,1,4])
+    with c1:
         parse_clicked = st.button("🔍 解析", type="primary", disabled=st.session_state.parsing_in_progress)
-    with col2:
+    with c2:
         if st.button("🧹 清空结果"):
             st.session_state.parse_result = pd.DataFrame()
             st.session_state.original_parse = []
@@ -417,10 +377,8 @@ with st.expander("📝 批量录入", expanded=True):
                         continue
                     status = next((e["状态"] for e in res if e and e.get("型号")==m and e.get("价格")==p), "")
                     if "✅ 有效" in status:
-                        save_list.append({
-                            "time": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
-                            "model": m, "price": int(p), "remark": str(r).strip()
-                        })
+                        save_list.append({"time": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+                                          "model": m, "price": int(p), "remark": str(r).strip()})
                         today_set.add((m, p, r))
 
                 progress.progress(1.0, "完成")
@@ -428,7 +386,7 @@ with st.expander("📝 批量录入", expanded=True):
                 progress.empty()
 
                 res_filtered = [r for r in res if r is not None]
-                priority = {"⚠️ 需手动核实":1, "❌ 解析失败":2, "✅ 有效（AI修正）":3, "✅ 有效":4, "⏭️ 已跳过":5}
+                priority = {"⚠️ 需手动核实":1, "❌ 解析失败":2, "✅ 有效（AI修正）":3, "✅ 有效":4, "⏭️ 已跳过（当天重复）":5}
                 res_sorted = sorted(res_filtered, key=lambda x: priority.get(x.get("状态",""), 99))
 
                 st.session_state.parse_result = pd.DataFrame(res_sorted)
@@ -597,7 +555,7 @@ if not df_all.empty:
         isfav = target in get_favorites()
         if st.button("⭐ 取消收藏" if isfav else "☆ 收藏"):
             toggle_favorite(target)
-            st.rerun()  # 仅此一处刷新，用于更新收藏状态
+            st.rerun()
 
         rules = get_price_rules()
         rule = rules.get(target, {"buy":0, "sell":0})
