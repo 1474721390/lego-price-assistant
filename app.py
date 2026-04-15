@@ -34,12 +34,113 @@ if not all([SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY]):
     st.error("❌ 请配置环境变量")
     st.stop()
 
-st.set_page_config(page_title="乐高报价系统", layout="wide")
+st.set_page_config(
+    page_title="乐高报价系统",
+    page_icon="🧩",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-# 初始化 supabase 客户端
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+# ==================== 自定义CSS美化 ====================
+st.markdown("""
+<style>
+    /* 全局字体与背景 */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+    html, body, [class*="css"]  {
+        font-family: 'Inter', sans-serif;
+        background-color: #f5f7fa;
+    }
+    /* 主标题 */
+    .main-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 1rem;
+    }
+    /* 卡片样式 */
+    .card {
+        background-color: white;
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+        border: 1px solid #e9ecef;
+    }
+    /* 按钮样式 */
+    .stButton > button {
+        border-radius: 10px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        border: none;
+    }
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.1);
+    }
+    /* 主要按钮 */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    /* 输入框 */
+    .stTextArea textarea {
+        border-radius: 12px;
+        border: 1px solid #d1d9e6;
+        background-color: white;
+    }
+    /* 表格 */
+    .stDataFrame {
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    /* 标签页 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px 8px 0 0;
+        padding: 10px 20px;
+        background-color: #f1f3f5;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: white !important;
+        font-weight: 600;
+        box-shadow: 0 -2px 6px rgba(0,0,0,0.05);
+    }
+    /* 分割线 */
+    hr {
+        margin: 1.5rem 0;
+        border-color: #e9ecef;
+    }
+    /* 信息提示框 */
+    .info-box {
+        background-color: #e7f5ff;
+        border-left: 4px solid #339af0;
+        padding: 16px;
+        border-radius: 8px;
+        margin: 16px 0;
+    }
+    /* 成功提示 */
+    .success-box {
+        background-color: #ebfbee;
+        border-left: 4px solid #51cf66;
+        padding: 16px;
+        border-radius: 8px;
+    }
+    /* 预警卡片 */
+    .alert-card {
+        background-color: #fff9db;
+        border-left: 4px solid #fcc419;
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 8px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# ==================== 会话状态初始化（极简稳定版） ====================
+# ==================== 会话状态初始化（极简稳定，避免 SessionInfo 错误） ====================
 if "parse_result" not in st.session_state:
     st.session_state.parse_result = pd.DataFrame()
 if "original_parse" not in st.session_state:
@@ -55,7 +156,10 @@ if "saving_in_progress" not in st.session_state:
 if "parse_result_status_filter" not in st.session_state:
     st.session_state.parse_result_status_filter = "全部"
 
-# ==================== 数据层缓存函数 ====================
+# ==================== Supabase 客户端 ====================
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ==================== 纯数据层缓存函数（绝不访问 session_state） ====================
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_all_records_cached(table_name):
     all_data = []
@@ -132,7 +236,7 @@ def save_price_rule(model, buy, sell):
         {"model": model, "buy": buy, "sell": sell}, on_conflict="model"
     ).execute()
     get_price_rules_from_db.clear()
-    st.rerun()  # 仅此一处保留 rerun，用于刷新心理价位显示
+    st.rerun()
 
 def get_alert_threshold():
     res = supabase.table("settings").select("alert_threshold").limit(1).execute()
@@ -185,8 +289,7 @@ def extract_by_llm_batch(lines):
 """
     for i, line in enumerate(lines):
         prompt += f"{i+1}. {line}\n"
-    max_retries = 2
-    for attempt in range(max_retries):
+    for attempt in range(2):
         try:
             response = requests.post(
                 "https://open.bigmodel.cn/api/paas/v4/chat/completions",
@@ -212,9 +315,6 @@ def extract_by_llm_batch(lines):
                             else:
                                 parsed.append((None, None, ""))
                         return parsed
-            else:
-                logger.warning(f"批量AI调用失败，状态码：{response.status_code}")
-                continue
         except Exception as e:
             logger.error(f"批量AI调用异常：{e}")
             continue
@@ -311,14 +411,14 @@ def update_record(id, data):
     try:
         return supabase.table("price_records").update(data).eq("id", id).execute()
     except Exception as e:
-        logger.error(f"更新记录失败 id={id}: {e}")
+        logger.error(f"更新失败 id={id}: {e}")
         return None
 
 def delete_record(id):
     try:
         return supabase.table("price_records").delete().eq("id", id).execute()
     except Exception as e:
-        logger.error(f"删除记录失败 id={id}: {e}")
+        logger.error(f"删除失败 id={id}: {e}")
         return None
 
 def render_grid_buttons(items, columns=3, prefix=""):
@@ -341,27 +441,33 @@ def paginate(items, page_size, current_page):
     return items[start_idx:end_idx]
 
 # ==================== 主界面 ====================
-st.title("🧩 乐高报价分析系统")
+st.markdown('<div class="main-title">🧩 乐高报价分析系统</div>', unsafe_allow_html=True)
 
-# --- 批量录入区域（稳定版，无 rerun 循环） ---
-with st.expander("📝 批量录入", expanded=True):
-    txt = st.text_area("粘贴内容", height=200, key="batch_input_text")
+# --- 批量录入卡片 ---
+with st.container():
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("📝 批量录入报价")
+    txt = st.text_area("粘贴报价文本（支持多行）", height=200, placeholder="例如：70收普快40675克隆人指挥官科迪 浙江\n1390收顺丰21341魔法屋 福建", key="batch_input_text")
     
-    parse_clicked = st.button("🔍 解析", type="primary", disabled=st.session_state.parsing_in_progress)
+    col1, col2, col3 = st.columns([1, 1, 4])
+    with col1:
+        parse_clicked = st.button("🔍 开始解析", type="primary", disabled=st.session_state.parsing_in_progress, use_container_width=True)
+    with col2:
+        if st.button("🧹 清空结果", use_container_width=True):
+            st.session_state.parse_result = pd.DataFrame()
+            st.session_state.original_parse = []
     
     if parse_clicked and not st.session_state.parsing_in_progress:
         st.session_state.parsing_in_progress = True
-        
         try:
             if not txt or txt.strip() == "":
-                st.warning("请输入内容")
+                st.warning("⚠️ 请输入内容")
             else:
                 lines = txt.strip().splitlines()
                 total_lines = len(lines)
-                
                 res = [None] * total_lines
                 
-                progress_bar = st.progress(0, text="开始解析...")
+                progress_bar = st.progress(0, text="🔍 正在解析...")
                 status_text = st.empty()
                 
                 regex_results = []
@@ -371,58 +477,33 @@ with st.expander("📝 批量录入", expanded=True):
                     if not m or not p:
                         res[idx] = {"型号":"","价格":0,"备注":"","原始":li,"状态":"❌ 解析失败"}
                 
-                progress_bar.progress(0.3, text="正则解析完成，检查可疑项...")
-                
+                progress_bar.progress(0.3, text="🤔 检查可疑项...")
                 ai_indices = []
                 for idx, (m, p, r, li) in enumerate(regex_results):
                     if m and p and should_use_ai_fallback(m, p, li):
                         ai_indices.append(idx)
                 
                 if ai_indices:
-                    progress_bar.progress(0.5, text=f"发现 {len(ai_indices)} 条可疑数据，正在批量调用AI...")
+                    progress_bar.progress(0.5, text=f"🤖 批量调用AI处理 {len(ai_indices)} 条可疑数据...")
                     ai_lines = [regex_results[i][3] for i in ai_indices]
                     ai_results = extract_by_llm_batch(ai_lines)
                     for i, idx in enumerate(ai_indices):
                         ai_model, ai_price, ai_remark = ai_results[i]
                         m_old, p_old, r_old, li = regex_results[idx]
                         if ai_model and ai_price:
-                            res[idx] = {
-                                "型号": ai_model,
-                                "价格": ai_price,
-                                "备注": ai_remark,
-                                "原始": li,
-                                "状态": "✅ 有效（AI修正）"
-                            }
+                            res[idx] = {"型号": ai_model, "价格": ai_price, "备注": ai_remark, "原始": li, "状态": "✅ 有效（AI修正）"}
                         else:
-                            res[idx] = {
-                                "型号": m_old,
-                                "价格": p_old,
-                                "备注": r_old,
-                                "原始": li,
-                                "状态": "⚠️ 需手动核实"
-                            }
+                            res[idx] = {"型号": m_old, "价格": p_old, "备注": r_old, "原始": li, "状态": "⚠️ 需手动核实"}
                 
                 for idx, (m, p, r, li) in enumerate(regex_results):
                     if res[idx] is None:
-                        res[idx] = {
-                            "型号": m,
-                            "价格": p,
-                            "备注": r,
-                            "原始": li,
-                            "状态": "✅ 有效"
-                        }
+                        res[idx] = {"型号": m, "价格": p, "备注": r, "原始": li, "状态": "✅ 有效"}
                 
-                progress_bar.progress(0.8, text="去重与当日检查...")
-                
+                progress_bar.progress(0.8, text="🗂️ 去重与当日检查...")
                 valid_entries = []
                 for entry in res:
                     if entry and entry["型号"] and entry["价格"] > 0:
-                        valid_entries.append({
-                            "model": entry["型号"],
-                            "price": entry["价格"],
-                            "remark": entry["备注"],
-                            "raw": entry["原始"]
-                        })
+                        valid_entries.append({"model": entry["型号"], "price": entry["价格"], "remark": entry["备注"], "raw": entry["原始"]})
                 
                 unique_batch = {}
                 for item in valid_entries:
@@ -450,96 +531,79 @@ with st.expander("📝 批量录入", expanded=True):
                         continue
                     status = next((e["状态"] for e in res if e and e.get("型号") == m and e.get("价格") == p), "")
                     if "✅ 有效" in status:
-                        save_list.append({
-                            "time": datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S"),
-                            "model": m,
-                            "price": int(p),
-                            "remark": str(r).strip()
-                        })
+                        save_list.append({"time": datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S"),
+                                          "model": m, "price": int(p), "remark": str(r).strip()})
                         today_set.add((m, p, r))
                 
-                progress_bar.progress(1.0, text="解析完成")
+                progress_bar.progress(1.0, text="✅ 解析完成")
                 status_text.empty()
                 progress_bar.empty()
                 
                 res_filtered = [r for r in res if r is not None]
-                
-                priority_order = {
-                    "⚠️ 需手动核实": 1,
-                    "❌ 解析失败": 2,
-                    "✅ 有效（AI修正）": 3,
-                    "✅ 有效": 4,
-                    "⏭️ 已跳过（当天重复）": 5
-                }
+                priority_order = {"⚠️ 需手动核实":1, "❌ 解析失败":2, "✅ 有效（AI修正）":3, "✅ 有效":4, "⏭️ 已跳过（当天重复）":5}
                 res_sorted = sorted(res_filtered, key=lambda x: priority_order.get(x.get("状态", ""), 99))
                 
                 st.session_state.parse_result = pd.DataFrame(res_sorted)
                 st.session_state.original_parse = res_sorted.copy()
                 
                 if save_list:
-                    with st.spinner(f"正在保存 {len(save_list)} 条有效数据..."):
+                    with st.spinner(f"💾 正在保存 {len(save_list)} 条有效数据..."):
                         saved_count = save_batch_one_by_one(save_list)
                     st.success(f"✅ 解析并自动保存 {saved_count} 条有效数据")
                 else:
                     if res_filtered:
-                        st.info("解析完成，没有新的有效数据需要保存")
+                        st.info("📭 解析完成，没有新的有效数据需要保存")
                     else:
-                        st.warning("没有解析到任何有效数据")
+                        st.warning("⚠️ 没有解析到任何有效数据")
         except Exception as e:
-            logger.error(f"解析过程异常: {e}")
-            st.error(f"解析出错，请重试。错误信息：{e}")
+            logger.error(f"解析异常: {e}")
+            st.error(f"❌ 解析出错：{e}")
         finally:
             st.session_state.parsing_in_progress = False
     
-    # 显示解析结果表格
-    parse_df = st.session_state.parse_result
-    if not parse_df.empty:
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --- 解析结果展示 ---
+parse_df = st.session_state.parse_result
+if not parse_df.empty:
+    with st.container():
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("📋 解析结果")
         status_counts = parse_df["状态"].value_counts().to_dict()
-        all_statuses = ["全部"] + list(status_counts.keys())
         
-        col_filter1, col_filter2 = st.columns([3, 1])
-        with col_filter1:
-            current_filter = st.session_state.parse_result_status_filter
-            if current_filter not in all_statuses:
-                current_filter = "全部"
-            selected_status = st.selectbox(
-                "📌 按状态筛选",
-                options=all_statuses,
-                index=all_statuses.index(current_filter),
-                key="status_filter_select"
-            )
-            st.session_state.parse_result_status_filter = selected_status
+        # 筛选器
+        col_f1, col_f2 = st.columns([3, 1])
+        with col_f1:
+            options = ["全部"] + list(status_counts.keys())
+            current = st.session_state.parse_result_status_filter
+            if current not in options:
+                current = "全部"
+            selected = st.selectbox("📌 按状态筛选", options, index=options.index(current), key="status_filter")
+            st.session_state.parse_result_status_filter = selected
         
         filter_status = st.session_state.parse_result_status_filter
-        if filter_status != "全部":
-            filtered_df = parse_df[parse_df["状态"] == filter_status].copy()
-        else:
-            filtered_df = parse_df.copy()
+        filtered = parse_df if filter_status == "全部" else parse_df[parse_df["状态"] == filter_status]
         
-        if not filtered_df.empty:
-            df_with_trend = filtered_df.copy()
-            valid_rows = df_with_trend[(df_with_trend["型号"] != "") & (df_with_trend["价格"] > 0)]
+        if not filtered.empty:
+            df_trend = filtered.copy()
+            valid_rows = df_trend[(df_trend["型号"] != "") & (df_trend["价格"] > 0)]
             if not valid_rows.empty:
-                df_clean_for_calc = get_clean_data()
-                model_price_pairs = list(zip(valid_rows["型号"].tolist(), valid_rows["价格"].tolist()))
-                batch_results = batch_calculate_trends_and_changes(df_clean_for_calc, model_price_pairs)
-                df_with_trend["趋势"] = "—"
-                df_with_trend["涨跌"] = "—"
+                df_clean = get_clean_data()
+                pairs = list(zip(valid_rows["型号"], valid_rows["价格"]))
+                trends = batch_calculate_trends_and_changes(df_clean, pairs)
+                df_trend["趋势"] = "—"
+                df_trend["涨跌"] = "—"
                 for idx, row in valid_rows.iterrows():
-                    model = row["型号"]
-                    if model in batch_results:
-                        df_with_trend.at[idx, "趋势"] = batch_results[model]["trend"]
-                        df_with_trend.at[idx, "涨跌"] = batch_results[model]["change"]
+                    if row["型号"] in trends:
+                        df_trend.at[idx, "趋势"] = trends[row["型号"]]["trend"]
+                        df_trend.at[idx, "涨跌"] = trends[row["型号"]]["change"]
             else:
-                df_with_trend["趋势"] = "—"
-                df_with_trend["涨跌"] = "—"
+                df_trend["趋势"] = "—"
+                df_trend["涨跌"] = "—"
             
-            cols_order = ["型号", "价格", "趋势", "涨跌", "备注", "原始", "状态"]
-            df_display = df_with_trend[cols_order]
-            height = min(400, 35 * len(df_display) + 38)
-            
+            display_cols = ["型号", "价格", "趋势", "涨跌", "备注", "原始", "状态"]
             edited_df = st.data_editor(
-                df_display,
+                df_trend[display_cols],
                 column_config={
                     "型号": st.column_config.TextColumn("型号", required=True),
                     "价格": st.column_config.NumberColumn("价格", required=True, min_value=0),
@@ -552,150 +616,138 @@ with st.expander("📝 批量录入", expanded=True):
                 use_container_width=True,
                 hide_index=True,
                 num_rows="fixed",
-                height=height,
-                key="parse_data_editor"
+                height=min(400, 35*len(df_trend)+38),
+                key="data_editor"
             )
             
             total = len(parse_df)
             valid = status_counts.get("✅ 有效", 0) + status_counts.get("✅ 有效（AI修正）", 0)
-            ai_fixed = status_counts.get("✅ 有效（AI修正）", 0)
+            ai = status_counts.get("✅ 有效（AI修正）", 0)
             manual = status_counts.get("⚠️ 需手动核实", 0)
             failed = status_counts.get("❌ 解析失败", 0)
             skipped = status_counts.get("⏭️ 已跳过（当天重复）", 0)
-            st.markdown(f"📊 **本轮解析**：总 {total} 条｜✅ 有效 {valid}｜🤖 AI修正 {ai_fixed}｜✏️ 需手动 {manual}｜❌ 失败 {failed}｜⏭️ 跳过 {skipped}")
+            st.markdown(f"📊 **本轮统计**：总 {total} 条 ｜ ✅ 有效 {valid} ｜ 🤖 AI修正 {ai} ｜ ✏️ 需手动 {manual} ｜ ❌ 失败 {failed} ｜ ⏭️ 跳过 {skipped}")
             
-            save_clicked = st.button("💾 修改并保存有效数据", type="primary", disabled=st.session_state.saving_in_progress)
-            if save_clicked and not st.session_state.saving_in_progress:
+            save_btn = st.button("💾 保存修改后的数据", type="primary", disabled=st.session_state.saving_in_progress)
+            if save_btn and not st.session_state.saving_in_progress:
                 st.session_state.saving_in_progress = True
                 original_dict = {i: row for i, row in enumerate(st.session_state.original_parse)}
-                save_list_manual = []
-                for idx, (_, edited_row) in enumerate(edited_df.iterrows()):
-                    original_row = original_dict.get(idx, {})
-                    if (edited_row["型号"] != original_row.get("型号", "") or
-                        edited_row["价格"] != original_row.get("价格", 0) or
-                        edited_row["备注"] != original_row.get("备注", "")):
-                        model = str(edited_row["型号"]).strip()
-                        price = edited_row["价格"]
-                        if model and len(model) == 5 and model.isdigit() and price >= 10:
-                            save_list_manual.append({"model": model, "price": int(price), "remark": str(edited_row["备注"]).strip()})
-                
-                if save_list_manual:
+                to_save = []
+                for idx, (_, row) in enumerate(edited_df.iterrows()):
+                    orig = original_dict.get(idx, {})
+                    if (row["型号"] != orig.get("型号", "") or row["价格"] != orig.get("价格", 0) or row["备注"] != orig.get("备注", "")):
+                        if row["型号"] and len(str(row["型号"]))==5 and str(row["型号"]).isdigit() and row["价格"]>=10:
+                            to_save.append({"model": str(row["型号"]), "price": int(row["价格"]), "remark": str(row["备注"]).strip()})
+                if to_save:
                     today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
-                    all_records_df = get_all_price_records_df()
+                    all_records = get_all_price_records_df()
                     today_set = set()
-                    for _, row in all_records_df.iterrows():
-                        time_str = row.get("time", "")
-                        if time_str and time_str[:10] == today.strftime("%Y-%m-%d"):
-                            today_set.add((row["model"], row["price"], str(row.get("remark", "")).strip()))
-                    final_save = []
-                    for item in save_list_manual:
-                        if (item["model"], item["price"], item["remark"]) not in today_set:
-                            final_save.append(item)
-                    if final_save:
+                    for _, r in all_records.iterrows():
+                        if r.get("time", "")[:10] == today.strftime("%Y-%m-%d"):
+                            today_set.add((r["model"], r["price"], str(r.get("remark", "")).strip()))
+                    final = [i for i in to_save if (i["model"], i["price"], i["remark"]) not in today_set]
+                    if final:
                         records = [{"time": datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S"),
-                                    "model": i["model"], "price": i["price"], "remark": i["remark"]} for i in final_save]
+                                    "model": i["model"], "price": i["price"], "remark": i["remark"]} for i in final]
                         saved = save_batch_one_by_one(records)
                         st.success(f"✅ 成功保存 {saved} 条修正数据")
                         st.session_state.parse_result = pd.DataFrame()
                         st.session_state.original_parse = []
                     else:
-                        st.info("数据已存在或无需保存")
+                        st.info("所有修改数据当天已存在")
                 else:
                     st.warning("没有检测到有效修改")
                 st.session_state.saving_in_progress = False
         else:
             st.info("当前筛选条件下无数据")
-    else:
-        st.info("暂无解析结果，请粘贴内容后点击“解析”")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 设置折叠面板 ---
-with st.expander("⚙️ 设置", expanded=False):
+# --- 设置卡片 ---
+with st.expander("⚙️ 系统设置", expanded=False):
     th = get_alert_threshold()
-    new_th = st.number_input("⚠️ 提醒阈值", min_value=1, value=th)
+    new_th = st.number_input("⚠️ 价格波动预警阈值（元）", min_value=1, value=th)
     if new_th != th:
         set_alert_threshold(new_th)
 
+# --- 主要功能选项卡（美化后）---
 df = get_clean_data()
 all_models = sorted(df["型号"].unique()) if not df.empty else []
-
-# --- 顶部导航栏 ---
-tab1, tab2, tab3, tab4 = st.tabs(["⭐ 我的收藏", "📈 涨跌幅排行", "📊 价格预警", "💰 价格区间筛选"])
+tab1, tab2, tab3, tab4 = st.tabs(["⭐ 我的收藏", "📈 涨跌排行", "📊 价格预警", "🔎 价格筛选"])
 
 with tab1:
-    st.markdown("#### ❤️ 点击下方按钮快速查看")
+    st.markdown("#### ❤️ 收藏型号快速查看")
     favs = get_favorites()
     if favs:
         fav_items = []
         for m in favs:
             s = df[df["型号"]==m]
-            if len(s)<2:
-                fav_items.append((f"{m} (数据不足)", m))
-            else:
+            if len(s)>=2:
                 s = s.sort_values("时间")
                 d = s.iloc[-1]["价格"] - s.iloc[0]["价格"]
                 icon = "📈" if d>0 else "📉"
-                fav_items.append((f"{m} {icon} {d:+}元 | 当前 {s.iloc[-1]['价格']}元", m))
-        render_grid_buttons(fav_items, columns=1, prefix="fav_tab")
+                fav_items.append((f"{m} {icon} {d:+}元 | 现价 ¥{s.iloc[-1]['价格']}", m))
+            else:
+                fav_items.append((f"{m} (数据不足)", m))
+        render_grid_buttons(fav_items, columns=1, prefix="fav")
     else:
-        st.info("暂无收藏")
+        st.info("暂无收藏，在历史管理中点击☆添加")
 
 with tab2:
-    st.markdown("#### 📊 近7日 / 近30日波动 TOP10")
-    c7, c30 = st.columns(2)
-    with c7:
-        st.markdown("##### 📈 近7天")
+    st.markdown("#### 📊 近7日 / 近30日 波动 TOP10")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**近7天涨幅**")
         t7 = get_trend(7)
         if t7:
-            items = [(f"{i['model']} {i['diff']:+}元 | 当前 {i['last']}元", i['model']) for i in t7[:10]]
-            render_grid_buttons(items, columns=1, prefix="trend7")
-    with c30:
-        st.markdown("##### 📉 近30天")
+            render_grid_buttons([(f"{i['model']} {i['diff']:+}元 | 现价 ¥{i['last']}", i['model']) for i in t7[:10]], 1, "t7")
+    with c2:
+        st.markdown("**近30天涨幅**")
         t30 = get_trend(30)
         if t30:
-            items = [(f"{i['model']} {i['diff']:+}元 | 当前 {i['last']}元", i['model']) for i in t30[:10]]
-            render_grid_buttons(items, columns=1, prefix="trend30")
+            render_grid_buttons([(f"{i['model']} {i['diff']:+}元 | 现价 ¥{i['last']}", i['model']) for i in t30[:10]], 1, "t30")
 
 with tab3:
-    st.markdown("#### 🔍 价格筛选")
-    min_p = st.number_input("最低价格", 0, 100, 0, 10, key="min_alert")
-    max_p = st.number_input("最高价格", 0, 100, 100, 10, key="max_alert")
+    st.markdown("#### 🚨 价格波动预警")
+    min_p = st.number_input("最低价格", 0, 100, 0, 10, key="alert_min")
+    max_p = st.number_input("最高价格", 0, 100, 100, 10, key="alert_max")
     alerts = get_alerts()
     if alerts:
         filtered = [a for a in alerts if (min_p <= a["last"] <= max_p if max_p>0 else a["last"]>=min_p)]
         up = sorted([a for a in filtered if a["trend"]=="上涨"], key=lambda x: -x["abs_diff"])
         down = sorted([a for a in filtered if a["trend"]=="下跌"], key=lambda x: -x["abs_diff"])
-        col_u, col_d = st.columns(2)
-        with col_u:
-            st.markdown("##### 📈 涨价")
+        cu, cd = st.columns(2)
+        with cu:
+            st.markdown("##### 📈 涨价榜")
             if up: render_grid_buttons([(f"{a['model']} +{a['abs_diff']}元", a['model']) for a in up], 1, "up")
-        with col_d:
-            st.markdown("##### 📉 跌价")
+        with cd:
+            st.markdown("##### 📉 跌价榜")
             if down: render_grid_buttons([(f"{a['model']} -{a['abs_diff']}元", a['model']) for a in down], 1, "down")
+    else:
+        st.info("暂无预警")
 
 with tab4:
-    st.markdown("#### 🔍 价格区间筛选")
-    min_p2 = st.number_input("最低", 0, 100000, 0, 10, key="min_price_tab4")
-    max_p2 = st.number_input("最高", 0, 100000, 10000, 10, key="max_price_tab4")
+    st.markdown("#### 🔎 价格区间筛选")
+    min_p2 = st.number_input("最低价", 0, 100, 0, 10, key="filter_min")
+    max_p2 = st.number_input("最高价", 0, 100, 100, 10, key="filter_max")
     if min_p2 < max_p2 or max_p2 == 0:
-        df_clean = get_clean_data()
-        if not df_clean.empty:
-            latest = df_clean.sort_values('时间').groupby('型号').tail(1)
+        if not df.empty:
+            latest = df.sort_values('时间').groupby('型号').tail(1)
             if max_p2 > 0:
                 latest = latest[(latest['价格'] >= min_p2) & (latest['价格'] <= max_p2)]
             else:
                 latest = latest[latest['价格'] >= min_p2]
             latest = latest.sort_values('价格', ascending=False)
             if not latest.empty:
-                items = [(f"{r['型号']} | {r['价格']}元", r['型号']) for _,r in latest.iterrows()]
-                page = st.selectbox("每页", [10,20,50], 1, key="page_size_tab4")
+                items = [(f"{r['型号']} | ¥{r['价格']}", r['型号']) for _,r in latest.iterrows()]
+                page = st.selectbox("每页", [10,20,50], 1, key="page_size")
                 total_pages = max(1, (len(items)+page-1)//page)
-                cur_page = st.slider("页码", 1, total_pages, 1, key="page_slider_tab4")
-                render_grid_buttons(paginate(items, page, cur_page), 2, "filter_tab4")
-                st.caption(f"共 {len(items)} 条，第 {cur_page}/{total_pages} 页")
+                cur = st.slider("页码", 1, total_pages, 1, key="page_slider")
+                render_grid_buttons(paginate(items, page, cur), 2, "filter")
+                st.caption(f"共 {len(items)} 条，第 {cur}/{total_pages} 页")
 
-# --- 历史数据管理 ---
+# --- 历史数据管理（底部）---
 st.divider()
-st.subheader("📋 历史数据管理")
+st.subheader("📋 型号详情与历史管理")
 if not df.empty:
     idx = 0
     if st.session_state.selected_model in all_models:
@@ -710,16 +762,16 @@ if not df.empty:
         rules = get_price_rules_from_db()
         rule = rules.get(target, {"buy":0, "sell":0})
         c1, c2 = st.columns(2)
-        with c1: b = st.number_input("💚 可收价格", value=rule["buy"])
-        with c2: s = st.number_input("❤️ 可出价格", value=rule["sell"])
+        with c1: b = st.number_input("💚 收货心理价", value=rule["buy"])
+        with c2: s = st.number_input("❤️ 出货心理价", value=rule["sell"])
         if st.button("💾 保存心理价位"):
             save_price_rule(target, b, s)
         
         model_data = df[df["型号"]==target].sort_values("时间", ascending=False)
         if not model_data.empty:
             cur = model_data.iloc[0]["价格"]
-            if s>0 and cur>=s: st.info(f"当前价 {cur} → ❤️ 可出货")
-            elif b>0 and cur<=b: st.info(f"当前价 {cur} → 💚 可收货")
+            if s>0 and cur>=s: st.info(f"当前价 ¥{cur} → 可出货")
+            elif b>0 and cur<=b: st.info(f"当前价 ¥{cur} → 可收货")
             
             show = model_data[["id", "原始时间", "型号", "价格", "remark"]].copy()
             show["日期"] = show["原始时间"].str[:10]
@@ -733,9 +785,10 @@ if not df.empty:
                     update_record(row["id"], {"model": row["型号"], "price": row["价格"], "remark": row["备注"]})
                 get_clean_data.clear()
                 fetch_all_records_cached.clear()
-                st.success("完成")
+                st.success("✅ 操作成功")
             
             fig = px.line(model_data.sort_values("时间"), x="时间", y="价格", markers=True)
+            fig.update_layout(margin=dict(l=20, r=20, t=30, b=20))
             st.plotly_chart(fig, use_container_width=True)
 
 if st.session_state.scroll_to_bottom:
