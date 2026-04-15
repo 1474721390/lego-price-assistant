@@ -43,7 +43,6 @@ class SessionStateManager:
         if cls._initialized:
             return True
         
-        # 等待会话完全初始化（最多等待 0.5 秒）
         max_wait = 0.5
         start_time = time.time()
         
@@ -52,7 +51,6 @@ class SessionStateManager:
                 return False
             time.sleep(0.01)
         
-        # 初始化所有必要的状态
         defaults = {
             "selected_model": "",
             "scroll_to_bottom": False,
@@ -127,33 +125,28 @@ st.markdown("""
         background-attachment: fixed;
     }
 
-    /* 所有卡片统一白色背景 + 圆角阴影 */
+    /* 所有模块统一白色卡片 */
     .stExpander, 
     .stTabs [role="tabpanel"], 
     [data-testid="stForm"],
-    .stDataFrame,
-    [data-testid="stDataEditor"] {
+    [data-testid="stDataEditor"],
+    [data-testid="stMetric"] {
         background: #ffffff !important;
         border-radius: 16px !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-        padding: 22px;
-        margin-bottom: 16px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06) !important;
+        padding: 20px !important;
+        margin-bottom: 16px !important;
         border: none !important;
     }
 
-    /* 修复：批量录入区域强制白色卡片 */
-    .stExpander > div > div {
+    /* 历史数据管理模块卡片 */
+    .data-manager-card {
         background: #ffffff !important;
         border-radius: 16px !important;
-        padding: 0 !important;
-    }
-
-    /* 修复：历史数据管理区域白色卡片包裹 */
-    .element-container:has(.stDataFrame) {
-        background: #ffffff !important;
-        border-radius: 16px !important;
-        padding: 20px !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06) !important;
+        padding: 24px !important;
+        margin-top: 20px !important;
+        margin-bottom: 20px !important;
     }
 
     /* 标签页顶级美化 */
@@ -169,7 +162,7 @@ st.markdown("""
         box-shadow: 0 3px 8px rgba(74,108,247,0.3);
     }
 
-    /* 按钮顶级质感 */
+    /* 普通按钮样式 */
     .stButton > button {
         border-radius: 12px;
         font-weight: 600;
@@ -177,23 +170,42 @@ st.markdown("""
         transition: all 0.25s ease;
         border: none;
         background: #f7f8ff !important;
+        color: #333 !important;
     }
     .stButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 5px 12px rgba(0,0,0,0.1);
     }
 
-    /* 🌟 完美修复输入框 */
+    /* 🔥 核心主按钮：蓝底白字（统一风格） */
+    button[kind="primary"], 
+    .stButton>button:has(div:has(div:has(div:has(div:has-text("一键解析报价"))))),
+    .stButton>button:has(div:has(div:has(div:has(div:has-text("保存并更新数据"))))),
+    .stButton>button:has(div:has(div:has(div:has(div:has-text("保存修改 & 删除选中"))))) {
+        background: #2A5BD9 !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 4px 10px rgba(42,91,217,0.25) !important;
+    }
+
+    button[kind="primary"]:hover,
+    .stButton>button:has(div:has(div:has(div:has(div:has-text("一键解析报价"))))):hover,
+    .stButton>button:has(div:has(div:has(div:has(div:has-text("保存并更新数据"))))):hover,
+    .stButton>button:has(div:has(div:has(div:has(div:has-text("保存修改 & 删除选中"))))):hover {
+        background: #1E4AC2 !important;
+        color: #FFFFFF !important;
+        transform: translateY(-2px);
+    }
+
+    /* 输入框美化 */
     div[data-testid="stNumberInput"],
     div[data-testid="stTextInput"] {
         background: #ffffff !important;
         border: 1px solid #d4e0fd !important;
         border-radius: 12px !important;
         padding: 6px 12px !important;
-        box-shadow: 0 1px 4px rgba(74,108,247,0.1) !important;
     }
 
-    /* 独立滚动容器 */
+    /* 滚动容器 */
     .scroll-box {
         background: #ffffff !important;
         border-radius: 14px !important;
@@ -204,8 +216,8 @@ st.markdown("""
         margin-top: 10px !important;
     }
 
-    /* 价格列表文字：强制黑色，不显示蓝色 */
-    .scroll-box button div p {
+    /* 列表内文字：黑色 */
+    .scroll-box button p {
         color: #111111 !important;
         font-weight: 500 !important;
     }
@@ -435,7 +447,7 @@ def extract_by_llm_full(line):
     prompt = f"""你是乐高价格信息提取专家。
 请从以下用户输入中提取：乐高型号（5位数字）、价格（数字）、备注（如盒况/袋况）。
 输入文本：{line}
-只返回一个 JSON 对象，格式：{{"model": "字符串", "price": "数字", "remark": "字符串"}}
+只返回一个 JSON 对象，格式：{{"model": "字符串", "price": 数字, "remark": "字符串"}}
 如果无法提取，返回：{{"model": null, "price": null, "remark": ""}}"""
 
     max_retries = 2
@@ -1179,10 +1191,7 @@ with tab4:
             st.info("📭 暂无数据")
 
 # ==================== 历史数据详细管理 ====================
-st.divider()
-
-# 修复：给历史数据管理包裹白色卡片
-st.markdown('<div style="background:#ffffff;border-radius:16px;box-shadow:0 4px 12px rgba(0,0,0,0.06);padding:24px;margin-bottom:20px;">', unsafe_allow_html=True)
+st.markdown('<div class="data-manager-card">', unsafe_allow_html=True)
 st.subheader("📋 历史数据详细管理")
 
 if not df.empty:
@@ -1288,6 +1297,7 @@ if not df.empty:
                 key=f"editor_{target}"
             )
 
+            # 🔥 统一蓝底白字按钮
             if st.button("💾 保存修改 & 删除选中", type="primary", key=f"save_{target}"):
                 del_ids = ed_table[ed_table["删除"] == True]["id"].tolist()
                 for did in del_ids:
@@ -1326,7 +1336,6 @@ if not df.empty:
         st.info("👆 请在上方选择一个型号查看详情")
 else:
     st.info("📭 暂无历史数据，请先在批量录入中添加数据")
-
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ==================== 自动滚动 ====================
@@ -1344,4 +1353,4 @@ smart_cache_clear()
 
 # ==================== 页脚 ====================
 st.divider()
-st.caption("🧩 乐高智能报价系统 | 最终完美商用版")
+st.caption("🧩 乐高智能报价系统 ")
