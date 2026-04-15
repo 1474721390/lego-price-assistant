@@ -2,6 +2,14 @@
 # 🔒 安全启动配置（必须放在最顶部！）
 # ===========================================
 import os
+import logging
+
+# 🔥 核心修复：关闭 httpx 日志刷屏
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("supabase").setLevel(logging.WARNING)
+logging.getLogger("streamlit").setLevel(logging.WARNING)
+
 os.environ["STREAMLIT_SERVER_RUNONSAVE"] = "false"
 os.environ["STREAMLIT_SERVER_FOLDERWATCHBLACKLIST"] = ".*"
 os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
@@ -81,15 +89,22 @@ class SessionStateManager:
         if cls.ensure_initialized():
             st.session_state[key] = value
     
-    @classmethod
-    def safe_rerun(cls, reason=""):
-        """安全的页面刷新"""
-        if cls.ensure_initialized():
-            st.query_params.update({
-                "refresh": str(time.time()),
-                "reason": reason
-            })
-            st.rerun()
+@classmethod
+def safe_rerun(cls, reason="", force=False):
+    """安全的页面刷新，避免无限循环"""
+    if not force:
+        # 防止短时间内多次刷新
+        last_rerun = st.session_state.get("last_rerun_time", 0)
+        if time.time() - last_rerun < 1:
+            return
+            
+    if cls.ensure_initialized():
+        st.session_state["last_rerun_time"] = time.time()
+        st.query_params.update({
+            "refresh": str(time.time()),
+            "reason": reason
+        })
+        st.rerun()
 
 # ==================== 环境配置 ====================
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
