@@ -1,5 +1,5 @@
 # ===========================================
-# 乐高报价系统 - 最终稳定版
+# 乐高报价系统 - 终极防抖版
 # ===========================================
 import os
 import re
@@ -13,14 +13,17 @@ import streamlit as st
 import plotly.express as px
 from supabase import create_client
 
-# 页面配置必须在最前
+# 安全配置
+os.environ["STREAMLIT_SERVER_RUNONSAVE"] = "false"
+os.environ["STREAMLIT_SERVER_FOLDERWATCHBLACKLIST"] = ".*"
+os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+os.environ["STREAMLIT_SERVER_ENABLE_WEBSOCKET_COMPRESSION"] = "false"
+
 st.set_page_config(page_title="乐高报价", layout="wide")
 
-# 日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 环境变量
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY")
@@ -29,12 +32,20 @@ if not all([SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY]):
     st.error("❌ 缺少环境变量")
     st.stop()
 
-# ---------- Supabase 客户端 (使用 @st.cache_resource 确保稳定) ----------
+# ---------- Supabase 客户端 ----------
 @st.cache_resource
 def get_supabase():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ---------- 数据获取函数 (不使用任何缓存装饰器，直接查询) ----------
+# ---------- 全局简单缓存变量 (不是装饰器，手动控制) ----------
+_data_cache = {}
+
+def get_cached(key, func):
+    # 每次调用都重新计算，除非在同一会话中且手动设置了缓存
+    # 我们不再使用自动过期，而是完全依赖 st.cache_resource 来管理数据库连接
+    return func()
+
+# ---------- 数据函数 (无任何自动缓存，直接查询) ----------
 def fetch_all_records(table_name):
     supabase = get_supabase()
     all_data = []
@@ -63,16 +74,12 @@ def get_clean_data():
     return df
 
 def get_all_price_records_df():
-    all_data = fetch_all_records("price_records")
-    return pd.DataFrame(all_data) if all_data else pd.DataFrame()
+    return pd.DataFrame(fetch_all_records("price_records"))
 
 def get_price_rules():
     supabase = get_supabase()
     res = supabase.table("price_rules").select("model, buy, sell").execute()
-    rules = {}
-    for r in res.data:
-        rules[r["model"]] = {"buy": r["buy"], "sell": r["sell"]}
-    return rules
+    return {r["model"]: {"buy": r["buy"], "sell": r["sell"]} for r in res.data} if res.data else {}
 
 def get_favorites():
     supabase = get_supabase()
