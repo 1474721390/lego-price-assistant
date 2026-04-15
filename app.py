@@ -1240,9 +1240,12 @@ if not df.empty:
                 save_price_rule(target, b, s)
                 st.success("✅ 已保存")
                 st.rerun()
-
         model_data = df[df["型号"] == target].sort_values("时间", ascending=False)
         if not model_data.empty:
             cur = model_data.iloc[0]["价格"]
             
-            col1, col2, col3 = st.columns(
+            # 修复：补全括号
+            col1, col2, col3 = st.columns(3)
+
+# 自动清理缓存
+smart_cache_clear()
