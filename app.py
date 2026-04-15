@@ -19,28 +19,60 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import streamlit as st
 import plotly.express as px
-from supabase import create_client
-import time
+from supabase import create_client, Client
 
 # ==================== 日志配置 ====================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ==================== 环境配置 ====================
+# ==================== 环境变量检查 ====================
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY")
 
 if not all([SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY]):
-    st.error("❌ 请配置环境变量")
+    st.error("❌ 缺少必要环境变量：SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY")
     st.stop()
 
+# ==================== 页面配置 ====================
 st.set_page_config(
     page_title="乐高报价系统",
     page_icon="🧩",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# ==================== 延迟初始化 Supabase 客户端（确保在任何时候调用都能拿到有效实例） ====================
+_supabase_client = None
+
+def get_supabase() -> Client:
+    """安全获取 Supabase 客户端，若未初始化则立即创建"""
+    global _supabase_client
+    if _supabase_client is None:
+        try:
+            _supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+            # 简单测试连接
+            _supabase_client.table("settings").select("id").limit(1).execute()
+        except Exception as e:
+            st.error(f"❌ 无法连接到 Supabase，请检查网络或密钥。错误：{e}")
+            st.stop()
+    return _supabase_client
+
+# ==================== 会话状态初始化（极简稳定，避免 SessionInfo 错误） ====================
+if "parse_result" not in st.session_state:
+    st.session_state.parse_result = pd.DataFrame()
+if "original_parse" not in st.session_state:
+    st.session_state.original_parse = []
+if "selected_model" not in st.session_state:
+    st.session_state.selected_model = ""
+if "scroll_to_bottom" not in st.session_state:
+    st.session_state.scroll_to_bottom = False
+if "parsing_in_progress" not in st.session_state:
+    st.session_state.parsing_in_progress = False
+if "saving_in_progress" not in st.session_state:
+    st.session_state.saving_in_progress = False
+if "parse_result_status_filter" not in st.session_state:
+    st.session_state.parse_result_status_filter = "全部"
 
 # ==================== 自定义CSS美化 ====================
 st.markdown("""
@@ -85,6 +117,10 @@ st.markdown("""
         border: 1px solid #d1d9e6;
         background-color: white;
     }
+    .stDataFrame {
+        border-radius: 12px;
+        overflow: hidden;
+    }
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
     }
@@ -105,56 +141,27 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== 手动内存缓存（替代 st.cache_data，彻底避免 SessionInfo 错误） ====================
-_cache = {}
-_cache_ttl = {}
-CACHE_TTL = 120  # 秒
-
-def cached_get(key, func, ttl=CACHE_TTL):
-    """手动缓存：如果缓存存在且未过期则返回，否则执行 func 并缓存"""
-    now = time.time()
-    if key in _cache and _cache_ttl.get(key, 0) > now:
-        return _cache[key]
-    data = func()
-    _cache[key] = data
-    _cache_ttl[key] = now + ttl
-    return data
-
-def clear_cache(prefix=""):
-    """清除指定前缀的缓存"""
-    global _cache, _cache_ttl
-    if prefix:
-        keys_to_del = [k for k in _cache if k.startswith(prefix)]
-        for k in keys_to_del:
-            del _cache[k]
-            if k in _cache_ttl:
-                del _cache_ttl[k]
-    else:
-        _cache.clear()
-        _cache_ttl.clear()
-
-# ==================== 数据获取函数（纯函数，不依赖 session_state） ====================
-def _fetch_price_records():
+# ==================== 数据层缓存函数（纯函数，绝不触碰 session_state） ====================
+@st.cache_data(ttl=120, show_spinner=False)
+def fetch_all_records_cached(table_name):
+    supabase = get_supabase()
     all_data = []
     page_size = 1000
     start = 0
     while True:
-        res = supabase.table("price_records").select("*").range(start, start+page_size-1).execute()
+        res = supabase.table(table_name).select("*").range(start, start+page_size-1).execute()
         if not res.data:
             break
         all_data.extend(res.data)
         start += page_size
     return all_data
 
-def get_all_price_records_df():
-    data = cached_get("all_price_records", _fetch_price_records)
-    return pd.DataFrame(data) if data else pd.DataFrame()
-
+@st.cache_data(ttl=120, show_spinner=False)
 def get_clean_data():
-    df = get_all_price_records_df()
-    if df.empty:
-        return df
-    df = df.copy()
+    all_data = fetch_all_records_cached("price_records")
+    if not all_data:
+        return pd.DataFrame()
+    df = pd.DataFrame(all_data)
     df["原始时间"] = df["time"]
     df["时间"] = pd.to_datetime(df["time"], errors='coerce')
     df["型号"] = df["model"].astype(str).str.strip()
@@ -164,6 +171,7 @@ def get_clean_data():
     df = df[(df["价格"] > 0) & (df["价格"] < 100000)]
     return df
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_latest_history():
     df = get_clean_data()
     latest = {}
@@ -180,75 +188,52 @@ def get_latest_history():
             }
     return latest
 
-def _fetch_price_rules():
+def get_all_price_records_df():
+    all_data = fetch_all_records_cached("price_records")
+    return pd.DataFrame(all_data) if all_data else pd.DataFrame()
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_price_rules_from_db():
+    supabase = get_supabase()
     res = supabase.table("price_rules").select("model, buy, sell").execute()
     rules = {}
     for r in res.data:
         rules[r["model"]] = {"buy": r["buy"], "sell": r["sell"]}
     return rules
 
-def get_price_rules_from_db():
-    return cached_get("price_rules", _fetch_price_rules, ttl=60)
-
+# ==================== 业务函数 ====================
 def get_favorites():
+    supabase = get_supabase()
     res = supabase.table("user_favorites").select("model").execute()
     return {item["model"] for item in res.data} if res.data else set()
 
-def get_alert_threshold():
-    res = supabase.table("settings").select("alert_threshold").limit(1).execute()
-    return res.data[0]["alert_threshold"] if res.data else 10
-
-# ==================== 业务操作函数 ====================
 def toggle_favorite(model):
+    supabase = get_supabase()
     favs = get_favorites()
     if model in favs:
         supabase.table("user_favorites").delete().eq("model", model).execute()
     else:
         supabase.table("user_favorites").insert({"model": model}).execute()
-    clear_cache("all_price_records")
+    get_clean_data.clear()
+    fetch_all_records_cached.clear()
 
 def save_price_rule(model, buy, sell):
+    supabase = get_supabase()
     supabase.table("price_rules").upsert(
         {"model": model, "buy": buy, "sell": sell}, on_conflict="model"
     ).execute()
-    clear_cache("price_rules")
+    get_price_rules_from_db.clear()
     st.rerun()
 
+def get_alert_threshold():
+    supabase = get_supabase()
+    res = supabase.table("settings").select("alert_threshold").limit(1).execute()
+    return res.data[0]["alert_threshold"] if res.data else 10
+
 def set_alert_threshold(v):
+    supabase = get_supabase()
     supabase.table("settings").upsert({"id": 1, "alert_threshold": v}, on_conflict="id").execute()
 
-def save_batch_one_by_one(records):
-    success_count = 0
-    for record in records:
-        try:
-            supabase.table("price_records").insert(record).execute()
-            success_count += 1
-        except Exception as e:
-            logger.error(f"保存失败: {e}")
-            continue
-    if success_count > 0:
-        clear_cache("all_price_records")
-    return success_count
-
-def update_record(id, data):
-    try:
-        supabase.table("price_records").update(data).eq("id", id).execute()
-        clear_cache("all_price_records")
-        return True
-    except Exception as e:
-        logger.error(f"更新失败: {e}")
-        return False
-
-def delete_record(id):
-    try:
-        supabase.table("price_records").delete().eq("id", id).execute()
-        clear_cache("all_price_records")
-        return True
-    except Exception as e:
-        logger.error(f"删除失败: {e}")
-        return False
-
-# ==================== 解析辅助函数 ====================
 def extract_remark(line):
     box_keywords = ["好盒", "压盒", "瑕疵", "盒损", "烂盒", "破盒", "全新", "微压"]
     bag_keywords = ["纸袋", "M袋", "S袋", "礼袋", "礼品袋", "M号袋", "S袋", "XL袋", "L袋", "大袋", "小袋", "有袋", "无袋", "袋子"]
@@ -397,6 +382,37 @@ def get_trend(days=7):
         trends.append({"model": m, "diff": diff, "abs_diff": abs(diff), "last": new})
     return sorted(trends, key=lambda x: -x["abs_diff"])
 
+def save_batch_one_by_one(records):
+    supabase = get_supabase()
+    success_count = 0
+    for record in records:
+        try:
+            supabase.table("price_records").insert(record).execute()
+            success_count += 1
+        except Exception as e:
+            logger.error(f"保存失败: {e}")
+            continue
+    if success_count > 0:
+        get_clean_data.clear()
+        fetch_all_records_cached.clear()
+    return success_count
+
+def update_record(id, data):
+    supabase = get_supabase()
+    try:
+        return supabase.table("price_records").update(data).eq("id", id).execute()
+    except Exception as e:
+        logger.error(f"更新失败 id={id}: {e}")
+        return None
+
+def delete_record(id):
+    supabase = get_supabase()
+    try:
+        return supabase.table("price_records").delete().eq("id", id).execute()
+    except Exception as e:
+        logger.error(f"删除失败 id={id}: {e}")
+        return None
+
 def render_grid_buttons(items, columns=3, prefix=""):
     if not items:
         return
@@ -415,22 +431,6 @@ def paginate(items, page_size, current_page):
     start_idx = (current_page - 1) * page_size
     end_idx = start_idx + page_size
     return items[start_idx:end_idx]
-
-# ==================== 会话状态初始化（尽早执行） ====================
-if "parse_result" not in st.session_state:
-    st.session_state.parse_result = pd.DataFrame()
-if "original_parse" not in st.session_state:
-    st.session_state.original_parse = []
-if "selected_model" not in st.session_state:
-    st.session_state.selected_model = ""
-if "scroll_to_bottom" not in st.session_state:
-    st.session_state.scroll_to_bottom = False
-if "parsing_in_progress" not in st.session_state:
-    st.session_state.parsing_in_progress = False
-if "saving_in_progress" not in st.session_state:
-    st.session_state.saving_in_progress = False
-if "parse_result_status_filter" not in st.session_state:
-    st.session_state.parse_result_status_filter = "全部"
 
 # ==================== 主界面 ====================
 st.markdown('<div class="main-title">🧩 乐高报价分析系统</div>', unsafe_allow_html=True)
@@ -653,7 +653,7 @@ if not parse_df.empty:
             st.info("当前筛选条件下无数据")
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 设置卡片 ---
+# --- 系统设置 ---
 with st.expander("⚙️ 系统设置", expanded=False):
     th = get_alert_threshold()
     new_th = st.number_input("⚠️ 价格波动预警阈值（元）", min_value=1, value=th)
@@ -736,7 +736,7 @@ with tab4:
                 render_grid_buttons(paginate(items, page, cur), 2, "filter")
                 st.caption(f"共 {len(items)} 条，第 {cur}/{total_pages} 页")
 
-# --- 历史数据管理（底部）---
+# --- 历史数据管理 ---
 st.divider()
 st.subheader("📋 型号详情与历史管理")
 if not df.empty:
@@ -749,7 +749,6 @@ if not df.empty:
         isfav = target in get_favorites()
         if st.button("⭐ 取消收藏" if isfav else "☆ 收藏"):
             toggle_favorite(target)
-            st.rerun()
         
         rules = get_price_rules_from_db()
         rule = rules.get(target, {"buy":0, "sell":0})
@@ -775,6 +774,8 @@ if not df.empty:
                 for did in del_ids: delete_record(did)
                 for _, row in edited[~edited["删除"]].iterrows():
                     update_record(row["id"], {"model": row["型号"], "price": row["价格"], "remark": row["备注"]})
+                get_clean_data.clear()
+                fetch_all_records_cached.clear()
                 st.success("✅ 操作成功")
             
             fig = px.line(model_data.sort_values("时间"), x="时间", y="价格", markers=True)
