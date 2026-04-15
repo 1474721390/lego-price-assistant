@@ -121,52 +121,102 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==================== 自定义CSS样式（商家专业UI优化） ====================
+# ==================== 🌸 豆包超级美化 CSS（只改颜值，不改功能） ====================
 st.markdown("""
 <style>
-    /* 整体背景 */
+    /* 全局柔和背景 */
     .stApp {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        background: linear-gradient(135deg, #f8f9ff 0%, #eef2fc 100%);
+        background-attachment: fixed;
     }
-    
-    /* 卡片 */
-    .stExpander, .stTabs [role="tabpanel"] {
-        background: rgba(255, 255, 255, 0.97);
-        border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        padding: 18px;
+
+    /* 卡片圆角 + 柔和阴影 */
+    .stExpander, .stTabs [role="tabpanel"], [data-testid="stForm"] {
+        background: #ffffff !important;
+        border-radius: 16px !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        padding: 22px;
+        margin-bottom: 16px;
+        border: none !important;
     }
-    
-    /* 按钮 */
-    .stButton > button {
-        border-radius: 8px;
+
+    /* 标签页美化 */
+    .stTabs [role="tablist"] {
+        background: #f1f5ff;
+        border-radius: 14px;
+        padding: 6px;
+        gap: 6px;
+    }
+    .stTabs [role="tab"] {
+        border-radius: 10px !important;
         font-weight: 600;
+        padding: 10px 16px;
         transition: all 0.2s ease;
-        border: none;
     }
-    
-    /* 标题纯黑色，100%清晰 */
+    .stTabs [aria-selected="true"] {
+        background: #4a6cf7 !important;
+        color: white !important;
+        box-shadow: 0 3px 8px rgba(74,108,247,0.3);
+    }
+
+    /* 按钮美化 */
+    .stButton > button {
+        border-radius: 12px;
+        font-weight: 600;
+        padding: 8px 14px;
+        transition: all 0.25s ease;
+        border: none;
+        background: #f7f8ff;
+    }
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 12px rgba(0,0,0,0.1);
+    }
+    div[data-testid="stNumberInput"] {
+        background: #f9fbfd;
+        border-radius: 10px;
+        padding: 4px 10px;
+    }
+
+    /* 标题纯黑 + 更美观间距 */
     h1, h2, h3, h4, h5, h6 {
         font-weight: 700 !important;
         color: #000000 !important;
-        opacity: 1 !important;
-        background: none !important;
-        -webkit-text-fill-color: #000 !important;
-        background-clip: unset !important;
+        margin-top: 10px !important;
+        margin-bottom: 14px !important;
     }
 
-    /* 表格行样式 */
-    .ai-corrected-row { background-color: rgba(147, 51, 234, 0.08) !important; }
-    .parse-failed-row { background-color: rgba(239, 68, 68, 0.08) !important; }
-    .success-row { background-color: rgba(34, 197, 94, 0.08) !important; }
+    /* 分割线更柔和 */
+    [data-testid="stDivider"] {
+        border-color: #e4eaf7;
+        margin: 24px 0;
+    }
 
-    /* 快速导航 */
-    .quick-nav {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 14px;
-        border-radius: 10px;
-        margin-bottom: 16px;
-        color: white;
+    /* 输入框美化 */
+    .stTextInput input, .stNumberInput input {
+        border-radius: 10px !important;
+        border: 1px solid #e4eaf7 !important;
+        padding: 10px 12px;
+    }
+
+    /* 预警 / 筛选面板柔和配色 */
+    [data-testid="stMarkdownContainer"] h3 {
+        color: #1e293b !important;
+    }
+
+    /* 分页按钮更精致 */
+    .stButton button:has(div:contains("首页")),
+    .stButton button:has(div:contains("上一页")),
+    .stButton button:has(div:contains("下一页")),
+    .stButton button:has(div:contains("尾页")) {
+        background: #f8faff !important;
+        border: 1px solid #e0e7ff !important;
+    }
+    .stButton button:has(div:contains("首页")):hover,
+    .stButton button:has(div:contains("上一页")):hover,
+    .stButton button:has(div:contains("下一页")):hover,
+    .stButton button:has(div:contains("尾页")):hover {
+        background: #eef2ff !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -807,7 +857,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
 
         if st.button("💾 应用修改并保存", type="primary", use_container_width=True, 
                     disabled=SessionStateManager.safe_get("saving_in_progress", False)):
-            SessionStateManager.safe_set("saving_in_progress", True)
+            SessionStateManager.safe_set("saving_in_progress", False)
             
             original_dict = {i: row for i, row in enumerate(SessionStateManager.safe_get("original_parse", []))}
             save_list_manual = []
@@ -1278,4 +1328,4 @@ smart_cache_clear()
 
 # ==================== 页脚 ====================
 st.divider()
-st.caption("🧩 乐高智能报价系统 | 商家专业版 | 数据实时同步")
+st.caption("🧩 乐高智能报价系统 | 商家专业美化版 | 赏心悦目")
