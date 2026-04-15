@@ -698,7 +698,7 @@ with tab2:
 with tab3:
     st.markdown("#### 🚨 价格波动预警")
     min_p = st.number_input("最低价格", 0, 100, 0, 10, key="alert_min")
-    max_p = st.number_input("最高价格", 0, 100, 100, 10, key="alert_max")
+    max_p = st.number_input("最高价格", 0, 10000, 10000, 10, key="alert_max")
     alerts = get_alerts()
     if alerts:
         filtered = [a for a in alerts if (min_p <= a["last"] <= max_p if max_p>0 else a["last"]>=min_p)]
@@ -717,7 +717,7 @@ with tab3:
 with tab4:
     st.markdown("#### 🔎 价格区间筛选")
     min_p2 = st.number_input("最低价", 0, 100, 0, 10, key="filter_min")
-    max_p2 = st.number_input("最高价", 0, 100, 100, 10, key="filter_max")
+    max_p2 = st.number_input("最高价", 0, 10000, 10000, 10, key="filter_max")
     if min_p2 < max_p2 or max_p2 == 0:
         if not df.empty:
             latest = df.sort_values('时间').groupby('型号').tail(1)
