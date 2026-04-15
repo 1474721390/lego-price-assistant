@@ -172,7 +172,10 @@ st.markdown("""
         box-shadow: 0 5px 12px rgba(0,0,0,0.1);
     }
 
-    button[kind="primary"] {
+    /* 以下三个按钮 强制 蓝底白字 */
+    div[data-testid="stFormSubmitButton"] button,
+    button[kind="primary"],
+    .stButton button {
         background: #2A5BD9 !important;
         color: #FFFFFF !important;
         font-weight: 600 !important;
@@ -180,7 +183,9 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(42,91,217,0.25) !important;
     }
 
-    button[kind="primary"]:hover {
+    div[data-testid="stFormSubmitButton"] button:hover,
+    button[kind="primary"]:hover,
+    .stButton button:hover {
         background: #1E4AC2 !important;
         color: #FFFFFF !important;
         transform: translateY(-2px);
