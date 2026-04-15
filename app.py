@@ -88,7 +88,7 @@ class SessionStateManager:
         """安全设置会话状态"""
         if cls.ensure_initialized():
             st.session_state[key] = value
-    
+
 @classmethod
 def safe_rerun(cls, reason="", force=False):
     """安全的页面刷新，避免无限循环"""
@@ -185,13 +185,14 @@ st.markdown("""
         color: white;
     }
     
-    /* 标题优化 */
+    /* 标题优化 + 解决标题看不见的问题 */
     h1, h2, h3 {
         font-weight: 700;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2c3e50 0%, #4a6fa5 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
+        opacity: 1 !important;
     }
     
     /* 收藏按钮特殊样式 */
@@ -1034,7 +1035,7 @@ with tab3:
     with col_min:
         min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_alert")
     with col_max:
-        max_price_alert = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_alert")
+        max_price_alert = st.number_input("最高价格", min_value=0, value=200, step=10, key="max_price_alert")
     
     st.divider()
     
@@ -1096,7 +1097,7 @@ with tab4:
     with col_min:
         min_price = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_tab4")
     with col_max:
-        max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_tab4")
+        max_price = st.number_input("最高价格", min_value=0, value=200, step=10, key="max_price_tab4")
     
     if min_price >= max_price and max_price > 0:
         st.warning("⚠️ 最高价格应大于最低价格")
@@ -1115,11 +1116,16 @@ with tab4:
             if not filtered_df.empty:
                 items = []
                 for _, row in filtered_df.iterrows():
+                    model = row['型号']
+                    price = row['价格']
                     remark = row.get('remark', '')
+                    # 计算记录条数
+                    count = len(df_clean[df_clean['型号'] == model])
                     remark_text = f" | {remark}" if remark else ""
+                    # 显示：型号 | 价格 | 备注 | 记录条数X
                     items.append((
-                        f"**{row['型号']}** | ¥{row['价格']}{remark_text}",
-                        row['型号']
+                        f"**{model}** | ¥{price}{remark_text} | 记录条数 {count}",
+                        model
                     ))
                 
                 total_items = len(items)
