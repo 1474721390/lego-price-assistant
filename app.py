@@ -116,16 +116,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-/* ==================== 🌸 终极商用美化CSS ==================== */
+# ==================== 终极商用美化CSS ====================
 st.markdown("""
 <style>
-    /* 全局柔和高级背景 */
     .stApp {
         background: linear-gradient(135deg, #f8f9ff 0%, #eef2fc 100%);
         background-attachment: fixed;
     }
 
-    /* 所有模块统一白色卡片 */
     .stExpander, 
     .stTabs [role="tabpanel"], 
     [data-testid="stForm"],
@@ -139,7 +137,6 @@ st.markdown("""
         border: none !important;
     }
 
-    /* 历史数据管理模块卡片 */
     .data-manager-card {
         background: #ffffff !important;
         border-radius: 16px !important;
@@ -149,7 +146,6 @@ st.markdown("""
         margin-bottom: 20px !important;
     }
 
-    /* 标签页顶级美化 */
     .stTabs [role="tablist"] {
         background: #f1f5ff;
         border-radius: 14px;
@@ -162,7 +158,6 @@ st.markdown("""
         box-shadow: 0 3px 8px rgba(74,108,247,0.3);
     }
 
-    /* 普通按钮样式 */
     .stButton > button {
         border-radius: 12px;
         font-weight: 600;
@@ -177,11 +172,7 @@ st.markdown("""
         box-shadow: 0 5px 12px rgba(0,0,0,0.1);
     }
 
-    /* 🔥 最终精准修复：三个主按钮 统一 深蓝色背景 + 白色文字 */
-    button[kind="primary"],
-    .stButton button:has(div:has-text("一键解析报价")),
-    .stButton button:has(div:has-text("保存并更新数据")),
-    .stButton button:has(div:has-text("保存修改 & 删除选中")) {
+    button[kind="primary"] {
         background: #2A5BD9 !important;
         color: #FFFFFF !important;
         font-weight: 600 !important;
@@ -189,16 +180,12 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(42,91,217,0.25) !important;
     }
 
-    button[kind="primary"]:hover,
-    .stButton button:has(div:has-text("一键解析报价")):hover,
-    .stButton button:has(div:has-text("保存并更新数据")):hover,
-    .stButton button:has(div:has-text("保存修改 & 删除选中")):hover {
+    button[kind="primary"]:hover {
         background: #1E4AC2 !important;
         color: #FFFFFF !important;
         transform: translateY(-2px);
     }
 
-    /* 输入框美化 */
     div[data-testid="stNumberInput"],
     div[data-testid="stTextInput"] {
         background: #ffffff !important;
@@ -207,7 +194,6 @@ st.markdown("""
         padding: 6px 12px !important;
     }
 
-    /* 滚动容器 */
     .scroll-box {
         background: #ffffff !important;
         border-radius: 14px !important;
@@ -218,19 +204,16 @@ st.markdown("""
         margin-top: 10px !important;
     }
 
-    /* 列表内文字：黑色 */
     .scroll-box button p {
         color: #111111 !important;
         font-weight: 500 !important;
     }
 
-    /* 标题纯黑清晰 */
     h1, h2, h3, h4, h5, h6 {
         font-weight: 700 !important;
         color: #000000 !important;
     }
 
-    /* 分割线柔和 */
     [data-testid="stDivider"] {
         border-color: #e4eaf7;
     }
