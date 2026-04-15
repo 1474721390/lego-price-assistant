@@ -127,14 +127,33 @@ st.markdown("""
         background-attachment: fixed;
     }
 
-    /* 卡片圆角 + 高级阴影 */
-    .stExpander, .stTabs [role="tabpanel"], [data-testid="stForm"] {
+    /* 所有卡片统一白色背景 + 圆角阴影 */
+    .stExpander, 
+    .stTabs [role="tabpanel"], 
+    [data-testid="stForm"],
+    .stDataFrame,
+    [data-testid="stDataEditor"] {
         background: #ffffff !important;
         border-radius: 16px !important;
         box-shadow: 0 4px 12px rgba(0,0,0,0.06);
         padding: 22px;
         margin-bottom: 16px;
         border: none !important;
+    }
+
+    /* 修复：批量录入区域强制白色卡片 */
+    .stExpander > div > div {
+        background: #ffffff !important;
+        border-radius: 16px !important;
+        padding: 0 !important;
+    }
+
+    /* 修复：历史数据管理区域白色卡片包裹 */
+    .element-container:has(.stDataFrame) {
+        background: #ffffff !important;
+        border-radius: 16px !important;
+        padding: 20px !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
     }
 
     /* 标签页顶级美化 */
@@ -174,7 +193,7 @@ st.markdown("""
         box-shadow: 0 1px 4px rgba(74,108,247,0.1) !important;
     }
 
-    /* 独立滚动容器（你要的大框+内部滑动） */
+    /* 独立滚动容器 */
     .scroll-box {
         background: #ffffff !important;
         border-radius: 14px !important;
@@ -185,8 +204,8 @@ st.markdown("""
         margin-top: 10px !important;
     }
 
-    /* ✅ 关键：价格预警/筛选/排行 文字不要蓝色！强制黑色 */
-    .scroll-container button div p {
+    /* 价格列表文字：强制黑色，不显示蓝色 */
+    .scroll-box button div p {
         color: #111111 !important;
         font-weight: 500 !important;
     }
@@ -416,7 +435,7 @@ def extract_by_llm_full(line):
     prompt = f"""你是乐高价格信息提取专家。
 请从以下用户输入中提取：乐高型号（5位数字）、价格（数字）、备注（如盒况/袋况）。
 输入文本：{line}
-只返回一个 JSON 对象，格式：{{"model": "字符串", "price": 数字, "remark": "字符串"}}
+只返回一个 JSON 对象，格式：{{"model": "字符串", "price": "数字", "remark": "字符串"}}
 如果无法提取，返回：{{"model": null, "price": null, "remark": ""}}"""
 
     max_retries = 2
@@ -1159,8 +1178,11 @@ with tab4:
         else:
             st.info("📭 暂无数据")
 
-# ==================== 历史数据管理 ====================
+# ==================== 历史数据详细管理 ====================
 st.divider()
+
+# 修复：给历史数据管理包裹白色卡片
+st.markdown('<div style="background:#ffffff;border-radius:16px;box-shadow:0 4px 12px rgba(0,0,0,0.06);padding:24px;margin-bottom:20px;">', unsafe_allow_html=True)
 st.subheader("📋 历史数据详细管理")
 
 if not df.empty:
@@ -1304,6 +1326,8 @@ if not df.empty:
         st.info("👆 请在上方选择一个型号查看详情")
 else:
     st.info("📭 暂无历史数据，请先在批量录入中添加数据")
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ==================== 自动滚动 ====================
 if SessionStateManager.safe_get("scroll_to_bottom", False):
