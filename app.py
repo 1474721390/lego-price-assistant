@@ -397,22 +397,6 @@ def smart_cache_clear():
         except RuntimeError:
             pass
 
-def quick_adopt_record(model, price, remark):
-    """快速采纳单条记录"""
-    try:
-        record = {
-            "time": datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S"),
-            "model": str(model).strip(),
-            "price": int(price),
-            "remark": str(remark).strip()
-        }
-        supabase.table("price_records").insert(record).execute()
-        SessionStateManager.safe_set("pending_cache_clear", True)
-        return True
-    except Exception as e:
-        logger.error(f"快速采纳失败: {e}")
-        return False
-
 # ==================== 主界面 ====================
 st.title("🧩 乐高报价分析系统")
 
@@ -421,7 +405,7 @@ if SessionStateManager.safe_get("clear_parse_result", False):
     SessionStateManager.safe_set("original_parse", [])
     SessionStateManager.safe_set("clear_parse_result", False)
 
-# --- 批量录入区域 ---
+# --- 批量录入区域（完全修复表格显示逻辑） ---
 with st.expander("📝 批量录入", expanded=True):
     txt = st.text_area("粘贴内容", height=200, key="batch_input_text")
     
@@ -433,6 +417,7 @@ with st.expander("📝 批量录入", expanded=True):
     if parse_clicked:
         SessionStateManager.safe_set("trigger_parse", True)
     
+    # 执行解析
     if SessionStateManager.safe_get("trigger_parse", False) and not SessionStateManager.safe_get("parsing_in_progress", False):
         SessionStateManager.safe_set("trigger_parse", False)
         SessionStateManager.safe_set("parsing_in_progress", True)
@@ -450,6 +435,7 @@ with st.expander("📝 批量录入", expanded=True):
                 progress_bar = st.progress(0, text="开始解析...")
                 status_text = st.empty()
                 
+                # 正则提取
                 regex_results = []
                 for idx, li in enumerate(lines):
                     m, p, r = extract_by_regex(li)
@@ -459,6 +445,7 @@ with st.expander("📝 批量录入", expanded=True):
                 
                 progress_bar.progress(0.3, text="正则解析完成，检查可疑项...")
                 
+                # AI 批量处理
                 ai_indices = []
                 for idx, (m, p, r, li) in enumerate(regex_results):
                     if m and p and should_use_ai_fallback(m, p, li):
@@ -488,6 +475,7 @@ with st.expander("📝 批量录入", expanded=True):
                                 "状态": "⚠️ 需手动核实"
                             }
                 
+                # 填充正则成功且未 AI 的行
                 for idx, (m, p, r, li) in enumerate(regex_results):
                     if res[idx] is None:
                         res[idx] = {
@@ -559,6 +547,7 @@ with st.expander("📝 批量录入", expanded=True):
                 }
                 res_sorted = sorted(res_filtered, key=lambda x: priority_order.get(x.get("状态", ""), 99))
                 
+                # 更新解析结果
                 SessionStateManager.safe_set("parse_result", pd.DataFrame(res_sorted))
                 SessionStateManager.safe_set("original_parse", res_sorted.copy())
                 
@@ -572,15 +561,17 @@ with st.expander("📝 批量录入", expanded=True):
                     else:
                         st.warning("没有解析到任何有效数据")
                 
+                # 如果有解析结果，清除自动清空标记，确保表格显示
                 SessionStateManager.safe_set("clear_parse_result", False)
         except Exception as e:
             logger.error(f"解析过程异常: {e}")
             st.error(f"解析出错，请重试。错误信息：{e}")
         finally:
             SessionStateManager.safe_set("parsing_in_progress", False)
+            # 强制刷新以显示表格
             st.rerun()
     
-    # 显示解析结果表格
+    # 显示解析结果表格（完全独立，不再受 save_list 影响）
     parse_df = SessionStateManager.safe_get("parse_result", pd.DataFrame())
     if not parse_df.empty:
         status_counts = parse_df["状态"].value_counts().to_dict()
@@ -654,8 +645,7 @@ with st.expander("📝 批量录入", expanded=True):
                 use_container_width=True,
                 hide_index=True,
                 num_rows="fixed",
-                height=height,
-                key="parse_data_editor"
+                height=height
             )
             
             total = len(parse_df)
@@ -665,58 +655,6 @@ with st.expander("📝 批量录入", expanded=True):
             failed = status_counts.get("❌ 解析失败", 0)
             skipped = status_counts.get("⏭️ 已跳过（当天重复）", 0)
             st.markdown(f"📊 **本轮解析**：总 {total} 条｜✅ 有效 {valid}｜🤖 AI修正 {ai_fixed}｜✏️ 需手动 {manual}｜❌ 失败 {failed}｜⏭️ 跳过 {skipped}")
-            
-            # ========== 快速采纳区域（无 expander，避免异常） ==========
-            if manual > 0:
-                st.divider()
-                st.subheader("⚡ 快速采纳需手动核实的数据")
-                st.markdown("点击下方按钮可直接将对应记录保存到数据库，状态将变为“✅ 有效（手动采纳）”。")
-                
-                manual_rows_all = parse_df[parse_df["状态"] == "⚠️ 需手动核实"].copy()
-                
-                if not manual_rows_all.empty:
-                    if st.button("🚀 一键采纳全部需手动核实数据", type="secondary", use_container_width=True, key="batch_adopt_all"):
-                        adopted_count = 0
-                        for _, row in manual_rows_all.iterrows():
-                            if quick_adopt_record(row["型号"], row["价格"], row["备注"]):
-                                adopted_count += 1
-                        if adopted_count > 0:
-                            st.success(f"✅ 成功采纳 {adopted_count} 条数据")
-                            updated_parse = parse_df.copy()
-                            updated_parse.loc[updated_parse["状态"] == "⚠️ 需手动核实", "状态"] = "✅ 有效（手动采纳）"
-                            SessionStateManager.safe_set("parse_result", updated_parse)
-                            smart_cache_clear()
-                            st.rerun()
-                        else:
-                            st.warning("没有成功采纳任何数据")
-                    
-                    st.divider()
-                    st.caption("或逐条采纳：")
-                    
-                    for idx, row in manual_rows_all.iterrows():
-                        unique_key = f"adopt_{idx}_{hash(row['型号'] + str(row['价格']) + str(row['备注']))}"
-                        col1, col2, col3, col4 = st.columns([2, 1, 2, 1])
-                        with col1:
-                            st.write(f"**{row['型号']}**")
-                        with col2:
-                            st.write(f"¥{row['价格']}")
-                        with col3:
-                            st.write(row['备注'] if row['备注'] else "—")
-                        with col4:
-                            if st.button("✅ 采纳", key=unique_key):
-                                if quick_adopt_record(row["型号"], row["价格"], row["备注"]):
-                                    updated_parse = parse_df.copy()
-                                    updated_parse.loc[idx, "状态"] = "✅ 有效（手动采纳）"
-                                    SessionStateManager.safe_set("parse_result", updated_parse)
-                                    smart_cache_clear()
-                                    st.success(f"已采纳 {row['型号']}")
-                                    st.rerun()
-                                else:
-                                    st.error("采纳失败，请重试")
-                else:
-                    st.info("当前没有需手动核实的数据")
-                st.divider()
-            # ========== 快速采纳区域结束 ==========
             
             if st.button("💾 修改并保存有效数据", type="primary", use_container_width=True,
                         disabled=SessionStateManager.safe_get("saving_in_progress", False)):
@@ -779,6 +717,7 @@ with st.expander("📝 批量录入", expanded=True):
         else:
             st.info("当前筛选条件下无数据")
     else:
+        # 显示占位提示
         st.info("暂无解析结果，请粘贴内容后点击“解析”")
 
 # --- 设置折叠面板 ---
