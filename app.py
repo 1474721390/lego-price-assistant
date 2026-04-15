@@ -33,7 +33,6 @@ class SessionStateManager:
 
     @classmethod
     def _force_init(cls):
-        """强制初始化，不依赖复杂的检查"""
         if cls._initialized:
             return
         defaults = {
@@ -48,6 +47,7 @@ class SessionStateManager:
             "temp_price_rules": {},
             "clear_parse_result": False,
             "parse_result_status_filter": "全部",
+            "trigger_parse": False,      # 新增：触发解析标志
         }
         for key, value in defaults.items():
             if key not in st.session_state:
@@ -406,40 +406,57 @@ if SessionStateManager.safe_get("clear_parse_result", False):
     SessionStateManager.safe_set("original_parse", [])
     SessionStateManager.safe_set("clear_parse_result", False)
 
-# --- 批量录入区域（修复二次点击无反应） ---
+# --- 批量录入区域（修复二次点击无响应、表格不显示问题） ---
 with st.expander("📝 批量录入", expanded=True):
-    # 使用 form 的 clear_on_submit=False，但我们会手动处理
-    with st.form("batch_input_form", clear_on_submit=False):
-        txt = st.text_area("粘贴内容", height=200, key="batch_input_text")
-        parse_submitted = st.form_submit_button("🔍 解析", type="primary", use_container_width=True)
+    txt = st.text_area("粘贴内容", height=200, key="batch_input_text")
     
-    if parse_submitted:
-        if not txt:
-            st.warning("请输入内容")
-        else:
-            # 使用 spinner 显示解析进度，不阻塞界面
-            with st.spinner("正在解析..."):
+    # 使用普通按钮而非 form_submit_button，避免表单状态干扰
+    col_btn1, col_btn2 = st.columns([1, 4])
+    with col_btn1:
+        parse_clicked = st.button("🔍 解析", type="primary", use_container_width=True,
+                                 disabled=SessionStateManager.safe_get("parsing_in_progress", False))
+    
+    # 如果按钮被点击，设置触发标志
+    if parse_clicked:
+        SessionStateManager.safe_set("trigger_parse", True)
+    
+    # 执行解析（如果触发标志为 True 且未在解析中）
+    if SessionStateManager.safe_get("trigger_parse", False) and not SessionStateManager.safe_get("parsing_in_progress", False):
+        # 重置触发标志
+        SessionStateManager.safe_set("trigger_parse", False)
+        SessionStateManager.safe_set("parsing_in_progress", True)
+        
+        try:
+            if not txt or txt.strip() == "":
+                st.warning("请输入内容")
+                SessionStateManager.safe_set("parsing_in_progress", False)
+            else:
                 lines = txt.strip().splitlines()
                 total_lines = len(lines)
                 
-                # 初始化结果列表
                 res = [None] * total_lines
                 
-                # 第一遍：正则提取
-                regex_results = []  # 保存每行的 (model, price, remark, raw_line)
+                progress_bar = st.progress(0, text="开始解析...")
+                status_text = st.empty()
+                
+                # 正则提取
+                regex_results = []
                 for idx, li in enumerate(lines):
                     m, p, r = extract_by_regex(li)
                     regex_results.append((m, p, r, li))
                     if not m or not p:
                         res[idx] = {"型号":"","价格":0,"备注":"","原始":li,"状态":"❌ 解析失败"}
                 
-                # 收集需要 AI 的行索引
+                progress_bar.progress(0.3, text="正则解析完成，检查可疑项...")
+                
+                # AI 批量处理
                 ai_indices = []
                 for idx, (m, p, r, li) in enumerate(regex_results):
                     if m and p and should_use_ai_fallback(m, p, li):
                         ai_indices.append(idx)
                 
                 if ai_indices:
+                    progress_bar.progress(0.5, text=f"发现 {len(ai_indices)} 条可疑数据，正在批量调用AI...")
                     ai_lines = [regex_results[i][3] for i in ai_indices]
                     ai_results = extract_by_llm_batch(ai_lines)
                     for i, idx in enumerate(ai_indices):
@@ -462,9 +479,9 @@ with st.expander("📝 批量录入", expanded=True):
                                 "状态": "⚠️ 需手动核实"
                             }
                 
-                # 填充正则成功且未触发 AI 的行
+                # 填充正则成功且未 AI 的行
                 for idx, (m, p, r, li) in enumerate(regex_results):
-                    if res[idx] is None:  # 未被处理（即正则成功）
+                    if res[idx] is None:
                         res[idx] = {
                             "型号": m,
                             "价格": p,
@@ -473,7 +490,8 @@ with st.expander("📝 批量录入", expanded=True):
                             "状态": "✅ 有效"
                         }
                 
-                # 去重与当日检查
+                progress_bar.progress(0.8, text="去重与当日检查...")
+                
                 valid_entries = []
                 for entry in res:
                     if entry and entry["型号"] and entry["价格"] > 0:
@@ -518,8 +536,12 @@ with st.expander("📝 批量录入", expanded=True):
                         })
                         today_set.add((m, p, r))
                 
-                # 过滤与排序
+                progress_bar.progress(1.0, text="解析完成")
+                status_text.empty()
+                progress_bar.empty()
+                
                 res_filtered = [r for r in res if r is not None]
+                
                 priority_order = {
                     "⚠️ 需手动核实": 1,
                     "❌ 解析失败": 2,
@@ -529,19 +551,28 @@ with st.expander("📝 批量录入", expanded=True):
                 }
                 res_sorted = sorted(res_filtered, key=lambda x: priority_order.get(x.get("状态", ""), 99))
                 
+                # 无论是否有数据，都更新 parse_result
                 SessionStateManager.safe_set("parse_result", pd.DataFrame(res_sorted))
                 SessionStateManager.safe_set("original_parse", res_sorted.copy())
                 
                 if save_list:
-                    saved_count = save_batch_one_by_one(save_list)
+                    with st.spinner(f"正在保存 {len(save_list)} 条有效数据..."):
+                        saved_count = save_batch_one_by_one(save_list)
                     st.success(f"✅ 解析并自动保存 {saved_count} 条有效数据")
-                    # 清空标记，让下次解析显示新结果
                     SessionStateManager.safe_set("clear_parse_result", True)
                     st.rerun()
                 else:
-                    st.info("没有新的有效数据需要保存")
+                    if res_filtered:
+                        st.info("解析完成，没有新的有效数据需要保存")
+                    else:
+                        st.warning("没有解析到任何有效数据")
+        except Exception as e:
+            logger.error(f"解析过程异常: {e}")
+            st.error(f"解析出错，请重试。错误信息：{e}")
+        finally:
+            SessionStateManager.safe_set("parsing_in_progress", False)
     
-    # 显示解析结果表格（保持不变）
+    # 显示解析结果表格（即使为空也展示提示）
     parse_df = SessionStateManager.safe_get("parse_result", pd.DataFrame())
     if not parse_df.empty:
         status_counts = parse_df["状态"].value_counts().to_dict()
@@ -686,6 +717,9 @@ with st.expander("📝 批量录入", expanded=True):
                 SessionStateManager.safe_set("saving_in_progress", False)
         else:
             st.info("当前筛选条件下无数据")
+    else:
+        # 即使没有数据，也显示一个提示
+        st.info("暂无解析结果，请粘贴内容后点击“解析”")
 
 # --- 设置折叠面板 ---
 with st.expander("⚙️ 设置", expanded=False):
