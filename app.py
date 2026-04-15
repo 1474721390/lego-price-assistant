@@ -64,9 +64,8 @@ class SessionStateManager:
             "save_triggered": False,
             "parsing_in_progress": False,
             "saving_in_progress": False,
-            # ===== 新增状态 =====
-            "quick_nav_model": "",  # 快速导航的型号
-            "show_favorites_bar": True,  # 是否显示收藏栏
+            "quick_nav_model": "",
+            "show_favorites_bar": True,
         }
         
         for key, value in defaults.items():
@@ -93,7 +92,6 @@ class SessionStateManager:
 def safe_rerun(cls, reason="", force=False):
     """安全的页面刷新，避免无限循环"""
     if not force:
-        # 防止短时间内多次刷新
         last_rerun = st.session_state.get("last_rerun_time", 0)
         if time.time() - last_rerun < 1:
             return
@@ -123,81 +121,52 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==================== 自定义CSS样式（专家级视觉优化） ====================
+# ==================== 自定义CSS样式（商家专业UI优化） ====================
 st.markdown("""
 <style>
-    /* 整体风格优化 */
+    /* 整体背景 */
     .stApp {
         background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     }
     
-    /* 卡片效果 */
+    /* 卡片 */
     .stExpander, .stTabs [role="tabpanel"] {
-        background: rgba(255, 255, 255, 0.95);
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        padding: 20px;
-        backdrop-filter: blur(10px);
+        background: rgba(255, 255, 255, 0.97);
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        padding: 18px;
     }
     
-    /* 按钮优化 */
+    /* 按钮 */
     .stButton > button {
-        border-radius: 10px;
+        border-radius: 8px;
         font-weight: 600;
-        transition: all 0.3s ease;
+        transition: all 0.2s ease;
         border: none;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
     
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    /* 标题纯黑色，100%清晰 */
+    h1, h2, h3, h4, h5, h6 {
+        font-weight: 700 !important;
+        color: #000000 !important;
+        opacity: 1 !important;
+        background: none !important;
+        -webkit-text-fill-color: #000 !important;
+        background-clip: unset !important;
     }
-    
-    /* 数据表格优化 */
-    .stDataFrame {
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
-    
-    /* AI修正行高亮 - 紫色背景 */
-    .ai-corrected-row {
-        background-color: rgba(147, 51, 234, 0.1) !important;
-    }
-    
-    /* 解析失败行高亮 - 红色背景 */
-    .parse-failed-row {
-        background-color: rgba(239, 68, 68, 0.1) !important;
-    }
-    
-    /* 成功行高亮 - 绿色背景 */
-    .success-row {
-        background-color: rgba(34, 197, 94, 0.1) !important;
-    }
-    
-    /* 快速导航栏 */
+
+    /* 表格行样式 */
+    .ai-corrected-row { background-color: rgba(147, 51, 234, 0.08) !important; }
+    .parse-failed-row { background-color: rgba(239, 68, 68, 0.08) !important; }
+    .success-row { background-color: rgba(34, 197, 94, 0.08) !important; }
+
+    /* 快速导航 */
     .quick-nav {
         background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 15px;
+        padding: 14px;
         border-radius: 10px;
-        margin-bottom: 20px;
+        margin-bottom: 16px;
         color: white;
-    }
-    
-    /* 标题优化 + 解决标题看不见的问题 */
-    h1, h2, h3 {
-        font-weight: 700;
-        background: linear-gradient(135deg, #2c3e50 0%, #4a6fa5 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        opacity: 1 !important;
-    }
-    
-    /* 收藏按钮特殊样式 */
-    .favorite-btn {
-        background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -306,13 +275,13 @@ def get_latest_history():
             latest[m] = {
                 "price": row["价格"],
                 "remark": str(row.get("remark", "")).strip(),
-                "time": row["时间"].isoformat() if row["时间"] else ""
+                "time": row["时间"].isoformat() if row["时间"] else "",
+                "last_time": row["时间"].strftime("%m-%d %H:%M") if row["时间"] else ""
             }
     return latest
 
 # ==================== 批量计算趋势和涨跌 ====================
 def batch_calculate_trends_and_changes(df_clean, model_price_pairs):
-    """批量计算多个型号的趋势和涨跌"""
     results = {}
     models = list(set(m for m, _ in model_price_pairs))
     model_histories = {}
@@ -407,7 +376,6 @@ def extract_by_regex(line):
     return model, price, remark
 
 def extract_by_llm_full(line):
-    """使用大模型从整行文本中提取结构化数据"""
     prompt = f"""你是乐高价格信息提取专家。
 请从以下用户输入中提取：乐高型号（5位数字）、价格（数字）、备注（如盒况/袋况）。
 输入文本：{line}
@@ -447,7 +415,6 @@ def extract_by_llm_full(line):
     return None, None, ""
 
 def should_use_ai_fallback(model, price, line):
-    """判断是否需要调用 AI 重新提取"""
     latest = get_latest_history()
     
     if not (10 <= price <= 8000):
@@ -501,7 +468,6 @@ def get_trend(days=7):
 
 # ==================== 增删改 ====================
 def save_batch_one_by_one(records):
-    """逐条保存，避免批量插入失败"""
     success_count = 0
     for record in records:
         try:
@@ -528,7 +494,6 @@ def delete_record(id):
 
 # ==================== 辅助函数 ====================
 def render_grid_buttons(items, columns=3, prefix=""):
-    """将列表渲染为网格按钮"""
     if not items:
         return
     for i in range(0, len(items), columns):
@@ -548,7 +513,6 @@ def paginate(items, page_size, current_page):
     return items[start_idx:end_idx]
 
 def smart_cache_clear():
-    """智能缓存清除"""
     if SessionStateManager.safe_get("pending_cache_clear", False):
         try:
             get_clean_data.clear()
@@ -559,24 +523,21 @@ def smart_cache_clear():
         except RuntimeError:
             pass
 
-# ==================== 优化：增强版走势图绘制 ====================
+# ==================== 走势图 ====================
 def plot_enhanced_trend(model_data, model, rules):
-    """绘制带心理价位参考线的走势图"""
     fig = go.Figure()
     
-    # 添加价格走势线
     fig.add_trace(go.Scatter(
         x=model_data["时间"],
         y=model_data["价格"],
         mode='lines+markers',
         name='历史价格',
         line=dict(color='#667eea', width=3),
-        marker=dict(size=8, color='#764ba2'),
+        marker=dict(size=7, color='#764ba2'),
         hovertemplate='<b>%{x}</b><br>价格: ¥%{y}<br>备注: %{text}<extra></extra>',
         text=model_data["remark"]
     ))
     
-    # 添加心理价位参考线
     if model in rules:
         rule = rules[model]
         if rule["buy"] > 0:
@@ -596,40 +557,36 @@ def plot_enhanced_trend(model_data, model, rules):
                 annotation_position="top right"
             )
     
-    # 美化布局
     fig.update_layout(
         title={
             'text': f"📊 {model} 价格走势分析",
             'x': 0.5,
             'xanchor': 'center',
-            'font': {'size': 24, 'color': '#333'}
+            'font': {'size': 20, 'color': '#000'}
         },
         xaxis_title="时间",
         yaxis_title="价格 (¥)",
         hovermode='x unified',
         template='plotly_white',
-        height=500,
-        margin=dict(l=50, r=50, t=80, b=50),
+        height=460,
+        margin=dict(l=40, r=40, t=60, b=40),
         plot_bgcolor='rgba(245,247,250,1)',
         paper_bgcolor='rgba(255,255,255,0.95)'
     )
     
     return fig
 
-# ==================== 优化：快速导航栏 ====================
+# ==================== 快速导航 ====================
 def render_quick_navigation():
-    """渲染顶部快速导航栏"""
     favs = get_favorites()
     if not favs:
         return
     
     st.markdown("### ⭐ 快速导航 - 我的收藏")
     
-    # 创建水平滚动的收藏按钮
     cols = st.columns(min(len(favs), 8))
     for i, model in enumerate(sorted(favs)[:8]):
         with cols[i]:
-            # 获取最新价格
             latest = get_latest_history()
             price_text = f"¥{latest.get(model, {}).get('price', '?')}" if model in latest else "无数据"
             
@@ -644,16 +601,15 @@ def render_quick_navigation():
                 st.rerun()
     
     if len(favs) > 8:
-        st.caption(f"... 还有 {len(favs)-8} 个收藏在下方标签页中")
+        st.caption(f"... 还有 {len(favs)-8} 个收藏")
 
 # ==================== 主界面 ====================
 st.title("🧩 乐高智能报价分析系统")
 st.markdown("---")
 
-# 渲染快速导航栏
 render_quick_navigation()
 
-# ==================== 批量录入区域 ====================
+# ==================== 批量录入 ====================
 with st.expander("📝 批量录入（点击展开）", expanded=True):
     with st.form("batch_input_form"):
         txt = st.text_area(
@@ -791,14 +747,12 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
         
         SessionStateManager.safe_set("parsing_in_progress", False)
 
-    # 显示解析结果
     if not SessionStateManager.safe_get("parse_result", pd.DataFrame()).empty:
         st.markdown("---")
         st.subheader("📋 解析结果（可编辑修正）")
         
         df_display = SessionStateManager.safe_get("parse_result", pd.DataFrame()).copy()
         
-        # 计算趋势和涨跌
         valid_rows = df_display[(df_display["型号"] != "") & (df_display["价格"] > 0)]
         if not valid_rows.empty:
             model_price_pairs = list(zip(valid_rows["型号"].tolist(), valid_rows["价格"].tolist()))
@@ -820,7 +774,6 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
         cols_order = ["型号", "价格", "趋势", "涨跌", "备注", "原始", "状态"]
         df_display = df_display[cols_order]
 
-        # 使用column_config设置列样式
         edited_df = st.data_editor(
             df_display,
             column_config={
@@ -837,7 +790,6 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
             num_rows="dynamic"
         )
 
-        # 统计信息
         total = len(df_display)
         valid = sum(1 for r in df_display.to_dict('records') if "✅ 有效" in r["状态"])
         ai_fixed = sum(1 for r in df_display.to_dict('records') if "AI修正" in r["状态"])
@@ -853,7 +805,6 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
         with col4:
             st.metric("✏️ 需手动", f"{manual} 条")
 
-        # 保存修改
         if st.button("💾 应用修改并保存", type="primary", use_container_width=True, 
                     disabled=SessionStateManager.safe_get("saving_in_progress", False)):
             SessionStateManager.safe_set("saving_in_progress", True)
@@ -949,14 +900,13 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # ------------------------------
-# Tab 1: 我的收藏（优化版）
+# Tab 1: 我的收藏
 # ------------------------------
 with tab1:
     st.markdown("### ❤️ 我的收藏型号")
     favs = get_favorites()
     
     if favs:
-        # 创建收藏卡片视图
         cols = st.columns(3)
         fav_items = []
         
@@ -971,7 +921,6 @@ with tab1:
                 diff = last_price - first_price
                 icon = "📈" if diff > 0 else "📉" if diff < 0 else "➡️"
                 
-                # 获取最新备注
                 latest_remark = s_sorted.iloc[-1].get("remark", "")
                 remark_text = f" | {latest_remark}" if latest_remark else ""
                 
@@ -982,7 +931,6 @@ with tab1:
         
         render_grid_buttons(fav_items, columns=1, prefix="fav_tab")
         
-        # 统计信息
         st.divider()
         st.caption(f"📊 共收藏 {len(favs)} 个型号")
     else:
@@ -1026,7 +974,7 @@ with tab2:
             st.caption("暂无数据")
 
 # ------------------------------
-# Tab 3: 价格预警
+# Tab 3: 价格预警（默认最大值100）
 # ------------------------------
 with tab3:
     st.markdown("### 🚨 价格异常波动预警")
@@ -1035,7 +983,7 @@ with tab3:
     with col_min:
         min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_alert")
     with col_max:
-        max_price_alert = st.number_input("最高价格", min_value=0, value=200, step=10, key="max_price_alert")
+        max_price_alert = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_alert")
     
     st.divider()
     
@@ -1088,7 +1036,7 @@ with tab3:
         st.info("✅ 暂无价格异常波动")
 
 # ------------------------------
-# Tab 4: 价格筛选
+# Tab 4: 价格筛选（专业商家版）
 # ------------------------------
 with tab4:
     st.markdown("### 🔍 价格区间筛选")
@@ -1097,7 +1045,7 @@ with tab4:
     with col_min:
         min_price = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_tab4")
     with col_max:
-        max_price = st.number_input("最高价格", min_value=0, value=200, step=10, key="max_price_tab4")
+        max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_tab4")
     
     if min_price >= max_price and max_price > 0:
         st.warning("⚠️ 最高价格应大于最低价格")
@@ -1115,45 +1063,65 @@ with tab4:
             
             if not filtered_df.empty:
                 items = []
+                latest_info = get_latest_history()
+                
                 for _, row in filtered_df.iterrows():
                     model = row['型号']
                     price = row['价格']
                     remark = row.get('remark', '')
-                    # 计算记录条数
                     count = len(df_clean[df_clean['型号'] == model])
-                    remark_text = f" | {remark}" if remark else ""
-                    # 显示：型号 | 价格 | 备注 | 记录条数X
+                    last_time = latest_info.get(model, {}).get('last_time', '无时间')
+                    
+                    remark_str = f" | {remark}" if remark else ""
                     items.append((
-                        f"**{model}** | ¥{price}{remark_text} | 记录条数 {count}",
+                        f"**{model}** | ¥{price}{remark_str} | 共{count}条 | {last_time}",
                         model
                     ))
                 
+                # 专业分页：首页 上一页 输入页码 下一页 尾页
                 total_items = len(items)
-                default_page_size = 20
-                page_size = st.selectbox("每页显示", options=[10, 20, 50], index=1, key="page_size_select_tab4")
-                total_pages = max(1, (total_items + page_size - 1) // page_size)
+                page_size = st.selectbox("每页显示", options=[10,20,50], index=1, key="pgsize")
+                total_pages = max(1, (total_items + page_size -1) // page_size)
                 current_page = SessionStateManager.safe_get("current_page_tab4", 1)
-                
-                col1, col2, col3 = st.columns([2, 3, 2])
+
+                # 分页工具栏
+                col1, col2, col3, col4, col5 = st.columns([1,1,2,1,1])
+                with col1:
+                    if st.button("🏠首页", use_container_width=True):
+                        current_page = 1
                 with col2:
-                    current_page = st.slider("页码", 1, total_pages, current_page, key="page_slider_tab4")
-                
+                    if st.button("⬅️上一页", use_container_width=True):
+                        current_page = max(1, current_page -1)
+                with col3:
+                    page_input = st.text_input("页码", value=f"{current_page}", label_visibility="collapsed")
+                    try:
+                        input_page = int(page_input)
+                        if 1 <= input_page <= total_pages:
+                            current_page = input_page
+                    except:
+                        pass
+                with col4:
+                    if st.button("下一页➡️", use_container_width=True):
+                        current_page = min(total_pages, current_page +1)
+                with col5:
+                    if st.button("尾页🚩", use_container_width=True):
+                        current_page = total_pages
+
                 SessionStateManager.safe_set("current_page_tab4", current_page)
                 paginated_items = paginate(items, page_size, current_page)
                 render_grid_buttons(paginated_items, columns=2, prefix="filter_tab4")
                 
-                st.caption(f"📊 共 {total_items} 个型号符合条件，当前第 {current_page}/{total_pages} 页")
+                st.caption(f"📊 共 {total_items} 个型号 | 第 {current_page}/{total_pages} 页")
             else:
                 st.info("🔍 未找到符合条件的数据")
         else:
             st.info("📭 暂无数据")
 
-# ==================== 历史数据管理（底部） ====================
+# ==================== 历史数据管理 ====================
 st.divider()
 st.subheader("📋 历史数据详细管理")
 
 if not df.empty:
-    # 型号选择区域
     col1, col2, col3 = st.columns([3, 1, 1])
     
     with col1:
@@ -1161,7 +1129,6 @@ if not df.empty:
         if SessionStateManager.safe_get("selected_model", "") in all_models:
             idx = all_models.index(SessionStateManager.safe_get("selected_model", "")) + 1
         
-        # 支持搜索的型号选择
         target = st.selectbox(
             "🔍 选择或搜索型号",
             [""] + all_models,
@@ -1180,12 +1147,10 @@ if not df.empty:
                 st.rerun()
         
         with col3:
-            # 快速跳转到走势图
             if st.button("📈 查看走势", use_container_width=True):
                 SessionStateManager.safe_set("scroll_to_bottom", True)
                 st.rerun()
         
-        # 心理价位设置
         st.markdown("---")
         st.markdown(f"### 💰 {target} 心理价位设置")
         
@@ -1194,11 +1159,9 @@ if not df.empty:
         
         cb, cs, cb2 = st.columns([2, 2, 1])
         with cb:
-            b = st.number_input("💚 收货心理价", value=rule["buy"], min_value=0, step=10,
-                               help="低于此价格时可考虑收货")
+            b = st.number_input("💚 收货心理价", value=rule["buy"], min_value=0, step=10)
         with cs:
-            s = st.number_input("❤️ 出货心理价", value=rule["sell"], min_value=0, step=10,
-                               help="高于此价格时可考虑出货")
+            s = st.number_input("❤️ 出货心理价", value=rule["sell"], min_value=0, step=10)
         with cb2:
             st.write("")
             st.write("")
@@ -1207,7 +1170,6 @@ if not df.empty:
                 st.success("✅ 已保存")
                 st.rerun()
 
-        # 当前价格提示
         model_data = df[df["型号"] == target].sort_values("时间", ascending=False)
         if not model_data.empty:
             cur = model_data.iloc[0]["价格"]
@@ -1218,13 +1180,11 @@ if not df.empty:
             with col2:
                 if s > 0:
                     delta = cur - s
-                    st.metric("距离出货价", f"{delta:+}元", 
-                             delta_color="inverse" if delta < 0 else "normal")
+                    st.metric("距离出货价", f"{delta:+}元")
             with col3:
                 if b > 0:
                     delta = cur - b
-                    st.metric("距离收货价", f"{delta:+}元",
-                             delta_color="normal" if delta > 0 else "inverse")
+                    st.metric("距离收货价", f"{delta:+}元")
             
             tip = ""
             if s > 0 and cur >= s:
@@ -1235,7 +1195,6 @@ if not df.empty:
             if tip:
                 st.info(tip)
 
-            # 数据编辑表格
             st.markdown("---")
             st.markdown("#### 📝 历史数据编辑")
             
@@ -1281,14 +1240,12 @@ if not df.empty:
                 get_clean_data.clear()
                 st.rerun()
 
-            # 走势图
             st.markdown("---")
             st.subheader(f"📈 {target} 价格走势分析")
             
             fig = plot_enhanced_trend(model_data.sort_values("时间"), target, rules)
             st.plotly_chart(fig, use_container_width=True)
             
-            # 统计信息
             if len(model_data) >= 2:
                 st.divider()
                 col1, col2, col3, col4 = st.columns(4)
@@ -1321,4 +1278,4 @@ smart_cache_clear()
 
 # ==================== 页脚 ====================
 st.divider()
-st.caption("🧩 乐高智能报价系统 v2.0 | 专业版 | 数据实时同步")
+st.caption("🧩 乐高智能报价系统 | 商家专业版 | 数据实时同步")
