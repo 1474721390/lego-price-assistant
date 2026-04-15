@@ -405,7 +405,7 @@ if SessionStateManager.safe_get("clear_parse_result", False):
     SessionStateManager.safe_set("original_parse", [])
     SessionStateManager.safe_set("clear_parse_result", False)
 
-# --- 批量录入区域（完全修复表格显示逻辑） ---
+# --- 批量录入区域（稳定版，无 expander） ---
 with st.expander("📝 批量录入", expanded=True):
     txt = st.text_area("粘贴内容", height=200, key="batch_input_text")
     
@@ -417,7 +417,6 @@ with st.expander("📝 批量录入", expanded=True):
     if parse_clicked:
         SessionStateManager.safe_set("trigger_parse", True)
     
-    # 执行解析
     if SessionStateManager.safe_get("trigger_parse", False) and not SessionStateManager.safe_get("parsing_in_progress", False):
         SessionStateManager.safe_set("trigger_parse", False)
         SessionStateManager.safe_set("parsing_in_progress", True)
@@ -435,7 +434,6 @@ with st.expander("📝 批量录入", expanded=True):
                 progress_bar = st.progress(0, text="开始解析...")
                 status_text = st.empty()
                 
-                # 正则提取
                 regex_results = []
                 for idx, li in enumerate(lines):
                     m, p, r = extract_by_regex(li)
@@ -445,7 +443,6 @@ with st.expander("📝 批量录入", expanded=True):
                 
                 progress_bar.progress(0.3, text="正则解析完成，检查可疑项...")
                 
-                # AI 批量处理
                 ai_indices = []
                 for idx, (m, p, r, li) in enumerate(regex_results):
                     if m and p and should_use_ai_fallback(m, p, li):
@@ -475,7 +472,6 @@ with st.expander("📝 批量录入", expanded=True):
                                 "状态": "⚠️ 需手动核实"
                             }
                 
-                # 填充正则成功且未 AI 的行
                 for idx, (m, p, r, li) in enumerate(regex_results):
                     if res[idx] is None:
                         res[idx] = {
@@ -547,7 +543,6 @@ with st.expander("📝 批量录入", expanded=True):
                 }
                 res_sorted = sorted(res_filtered, key=lambda x: priority_order.get(x.get("状态", ""), 99))
                 
-                # 更新解析结果
                 SessionStateManager.safe_set("parse_result", pd.DataFrame(res_sorted))
                 SessionStateManager.safe_set("original_parse", res_sorted.copy())
                 
@@ -561,17 +556,15 @@ with st.expander("📝 批量录入", expanded=True):
                     else:
                         st.warning("没有解析到任何有效数据")
                 
-                # 如果有解析结果，清除自动清空标记，确保表格显示
                 SessionStateManager.safe_set("clear_parse_result", False)
         except Exception as e:
             logger.error(f"解析过程异常: {e}")
             st.error(f"解析出错，请重试。错误信息：{e}")
         finally:
             SessionStateManager.safe_set("parsing_in_progress", False)
-            # 强制刷新以显示表格
             st.rerun()
     
-    # 显示解析结果表格（完全独立，不再受 save_list 影响）
+    # 显示解析结果表格
     parse_df = SessionStateManager.safe_get("parse_result", pd.DataFrame())
     if not parse_df.empty:
         status_counts = parse_df["状态"].value_counts().to_dict()
@@ -717,7 +710,6 @@ with st.expander("📝 批量录入", expanded=True):
         else:
             st.info("当前筛选条件下无数据")
     else:
-        # 显示占位提示
         st.info("暂无解析结果，请粘贴内容后点击“解析”")
 
 # --- 设置折叠面板 ---
