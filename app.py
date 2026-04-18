@@ -31,73 +31,177 @@ from plotly.subplots import make_subplots
 from supabase import create_client
 import time
 from typing import Dict, List, Tuple, Optional
+import functools
+
+# ==================== 流安全装饰器 ====================
+def streamlit_safe(func):
+    """装饰器：确保 Streamlit 操作安全，防止会话状态错误"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            # 确保会话状态就绪
+            if not hasattr(st, 'session_state') or st.session_state is None:
+                # 尝试初始化
+                st.session_state = {}
+                # 设置基本默认值
+                basic_defaults = {
+                    "selected_model": "",
+                    "scroll_to_bottom": False,
+                    "parse_result": pd.DataFrame(),
+                    "original_parse": [],
+                    "pending_cache_clear": False,
+                    "current_page_tab4": 1,
+                    "parse_triggered": False,
+                    "save_triggered": False,
+                    "parsing_in_progress": False,
+                    "saving_in_progress": False,
+                    "quick_nav_model": "",
+                    "show_favorites_bar": True,
+                    "last_rerun_time": 0
+                }
+                for key, value in basic_defaults.items():
+                    st.session_state[key] = value
+            
+            return func(*args, **kwargs)
+        except Exception as e:
+            st.error(f"操作失败: {str(e)}")
+            return None
+    return wrapper
 
 # ==================== 会话状态管理器（增强版） ====================
 class SessionStateManager:
     """统一的会话状态管理，避免竞态条件"""
     _initialized = False
+    _state_ready = False
     
     @classmethod
     def ensure_initialized(cls):
-        """确保会话状态完全初始化"""
-        if cls._initialized:
+        """确保会话状态完全初始化 - 修复版本"""
+        if cls._initialized and cls._state_ready:
             return True
         
-        max_wait = 0.5
-        start_time = time.time()
+        # 最大重试次数
+        max_retries = 3
+        retry_delay = 0.1
         
-        while not hasattr(st, 'session_state') or st.session_state is None:
-            if time.time() - start_time > max_wait:
-                return False
-            time.sleep(0.01)
+        for attempt in range(max_retries):
+            try:
+                # 尝试安全地初始化会话状态
+                if not hasattr(st, 'session_state') or st.session_state is None:
+                    # 如果还没有会话状态，先设置一个空字典
+                    st.session_state = {}
+                
+                # 设置默认值
+                defaults = {
+                    "selected_model": "",
+                    "scroll_to_bottom": False,
+                    "parse_result": pd.DataFrame(),
+                    "original_parse": [],
+                    "pending_cache_clear": False,
+                    "current_page_tab4": 1,
+                    "parse_triggered": False,
+                    "save_triggered": False,
+                    "parsing_in_progress": False,
+                    "saving_in_progress": False,
+                    "quick_nav_model": "",
+                    "show_favorites_bar": True,
+                    "last_rerun_time": 0,
+                    # 添加调试和状态标记
+                    "_session_initialized": True,
+                    "_initialization_time": time.time()
+                }
+                
+                # 安全地设置默认值
+                for key, value in defaults.items():
+                    if key not in st.session_state:
+                        try:
+                            st.session_state[key] = value
+                        except (AttributeError, RuntimeError):
+                            # 如果设置失败，稍后重试
+                            continue
+                
+                cls._initialized = True
+                cls._state_ready = True
+                return True
+                
+            except (AttributeError, RuntimeError) as e:
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                else:
+                    # 最后一次尝试也失败，记录但不崩溃
+                    print(f"警告: 会话状态初始化失败: {e}")
+                    return False
         
-        defaults = {
-            "selected_model": "",
-            "scroll_to_bottom": False,
-            "parse_result": pd.DataFrame(),
-            "original_parse": [],
-            "pending_cache_clear": False,
-            "current_page_tab4": 1,
-            "parse_triggered": False,
-            "save_triggered": False,
-            "parsing_in_progress": False,
-            "saving_in_progress": False,
-            "quick_nav_model": "",
-            "show_favorites_bar": True,
-            "last_rerun_time": 0
-        }
-        
-        for key, value in defaults.items():
-            if key not in st.session_state:
-                st.session_state[key] = value
-        
-        cls._initialized = True
-        return True
+        return False
     
     @classmethod
     def safe_get(cls, key, default=None):
         """安全获取会话状态"""
-        if not cls.ensure_initialized():
+        try:
+            # 先尝试直接获取
+            if hasattr(st, 'session_state') and st.session_state is not None:
+                return st.session_state.get(key, default)
+            
+            # 如果不行，尝试初始化
+            if cls.ensure_initialized():
+                return st.session_state.get(key, default)
+            
             return default
-        return st.session_state.get(key, default)
+        except (AttributeError, RuntimeError, KeyError):
+            return default
     
     @classmethod
     def safe_set(cls, key, value):
         """安全设置会话状态"""
-        if cls.ensure_initialized():
+        try:
+            # 确保会话状态存在
+            if not hasattr(st, 'session_state') or st.session_state is None:
+                cls.ensure_initialized()
+            
+            # 设置值
             st.session_state[key] = value
-
+            return True
+        except (AttributeError, RuntimeError) as e:
+            print(f"警告: 设置会话状态失败 {key}={value}: {e}")
+            return False
+    
+    @classmethod
+    def safe_update(cls, updates: dict):
+        """批量安全更新会话状态"""
+        try:
+            for key, value in updates.items():
+                cls.safe_set(key, value)
+            return True
+        except Exception as e:
+            print(f"警告: 批量更新会话状态失败: {e}")
+            return False
+    
     @classmethod
     def safe_rerun(cls, reason="", force=False):
         """安全的页面刷新，避免无限循环"""
-        if not force:
-            last_rerun = st.session_state.get("last_rerun_time", 0)
-            if time.time() - last_rerun < 1:
-                return
-                
-        if cls.ensure_initialized():
-            st.session_state["last_rerun_time"] = time.time()
+        try:
+            if not force:
+                last_rerun = cls.safe_get("last_rerun_time", 0)
+                if time.time() - last_rerun < 1:
+                    return False
+            
+            cls.safe_set("last_rerun_time", time.time())
             st.rerun()
+            return True
+        except Exception as e:
+            print(f"警告: 刷新页面失败: {e}")
+            return False
+
+# ==================== 安全状态访问函数 ====================
+@streamlit_safe
+def safe_session_get(key, default=None):
+    """安全的会话状态获取函数"""
+    return SessionStateManager.safe_get(key, default)
+
+@streamlit_safe
+def safe_session_set(key, value):
+    """安全的会话状态设置函数"""
+    return SessionStateManager.safe_set(key, value)
 
 # ==================== 环境配置 ====================
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -108,6 +212,12 @@ if not all([SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY]):
     st.error("❌ 缺少必要的环境变量配置")
     st.info("请配置以下环境变量：SUPABASE_URL, SUPABASE_KEY, ZHIPU_API_KEY")
     st.stop()
+
+# 在设置页面配置前初始化会话状态管理器
+try:
+    SessionStateManager.ensure_initialized()
+except:
+    pass  # 即使失败也继续
 
 st.set_page_config(
     page_title="🧩 乐高智能报价系统",
@@ -222,7 +332,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==================== 初始化会话状态 ====================
-SessionStateManager.ensure_initialized()
+try:
+    SessionStateManager.ensure_initialized()
+except Exception as e:
+    st.warning(f"会话状态初始化遇到问题: {e}，但应用将继续运行")
 
 # ==================== Supabase客户端 ====================
 @st.cache_resource
@@ -527,7 +640,7 @@ def save_batch_one_by_one(records):
             print(f"保存失败: {e}")
             continue
     if success_count > 0:
-        SessionStateManager.safe_set("pending_cache_clear", True)
+        safe_session_set("pending_cache_clear", True)
     return success_count
 
 def update_record(id, data):
@@ -554,8 +667,8 @@ def render_grid_buttons(items, columns=3, prefix=""):
                 label, model = items[idx]
                 key = f"{prefix}_{model}_{idx}"
                 if col.button(label, key=key, use_container_width=True):
-                    SessionStateManager.safe_set("selected_model", model)
-                    SessionStateManager.safe_set("scroll_to_bottom", True)
+                    safe_session_set("selected_model", model)
+                    safe_session_set("scroll_to_bottom", True)
 
 def paginate(items, page_size, current_page):
     start_idx = (current_page - 1) * page_size
@@ -563,13 +676,13 @@ def paginate(items, page_size, current_page):
     return items[start_idx:end_idx]
 
 def smart_cache_clear():
-    if SessionStateManager.safe_get("pending_cache_clear", False):
+    if safe_session_get("pending_cache_clear", False):
         try:
             get_clean_data.clear()
             get_latest_history.clear()
             get_favorites.clear()
             st.cache_data.clear()
-            SessionStateManager.safe_set("pending_cache_clear", False)
+            safe_session_set("pending_cache_clear", False)
         except RuntimeError:
             pass
 
@@ -646,9 +759,9 @@ def render_quick_navigation():
                 use_container_width=True,
                 help=f"点击查看 {model} 详情"
             ):
-                SessionStateManager.safe_set("selected_model", model)
-                SessionStateManager.safe_set("scroll_to_bottom", True)
-                st.rerun()
+                safe_session_set("selected_model", model)
+                safe_session_set("scroll_to_bottom", True)
+                SessionStateManager.safe_rerun()
     
     if len(favs) > 8:
         st.caption(f"... 还有 {len(favs)-8} 个收藏")
@@ -679,14 +792,14 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
         with col2:
             st.caption("💡 系统会自动识别型号、价格、备注，并用AI修正可疑数据")
     
-    parsing = SessionStateManager.safe_get("parsing_in_progress", False)
+    parsing = safe_session_get("parsing_in_progress", False)
     
     if parse_submitted and not parsing:
-        SessionStateManager.safe_set("parsing_in_progress", True)
+        safe_session_set("parsing_in_progress", True)
         
         if not txt:
             st.warning("⚠️ 请输入要解析的内容")
-            SessionStateManager.safe_set("parsing_in_progress", False)
+            safe_session_set("parsing_in_progress", False)
         else:
             lines = txt.strip().splitlines()
             total_lines = len(lines)
@@ -781,8 +894,8 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
             status_text.empty()
             
             result_df = pd.DataFrame(res)
-            SessionStateManager.safe_set("parse_result", result_df)
-            SessionStateManager.safe_set("original_parse", res.copy())
+            safe_session_set("parse_result", result_df)
+            safe_session_set("original_parse", res.copy())
 
             if save_list:
                 with st.spinner(f"💾 正在保存 {len(save_list)} 条有效数据到数据库..."):
@@ -790,13 +903,13 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
                 st.success(f"✅ 成功解析并自动保存 {saved_count} 条有效报价数据")
                 st.balloons()
         
-        SessionStateManager.safe_set("parsing_in_progress", False)
+        safe_session_set("parsing_in_progress", False)
 
-    if not SessionStateManager.safe_get("parse_result", pd.DataFrame()).empty:
+    if not safe_session_get("parse_result", pd.DataFrame()).empty:
         st.markdown("---")
         st.subheader("📋 解析结果（可编辑修正）")
         
-        df_display = SessionStateManager.safe_get("parse_result", pd.DataFrame()).copy()
+        df_display = safe_session_get("parse_result", pd.DataFrame()).copy()
         
         valid_rows = df_display[(df_display["型号"] != "") & (df_display["价格"] > 0)]
         if not valid_rows.empty:
@@ -850,11 +963,11 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
         with col4:
             st.metric("✏️ 需手动", f"{manual} 条")
 
-        saving = SessionStateManager.safe_get("saving_in_progress", False)
+        saving = safe_session_get("saving_in_progress", False)
         if st.button("💾 保存并更新数据", type="primary", use_container_width=True, disabled=saving):
-            SessionStateManager.safe_set("saving_in_progress", True)
+            safe_session_set("saving_in_progress", True)
             
-            original_dict = {i: row for i, row in enumerate(SessionStateManager.safe_get("original_parse", []))}
+            original_dict = {i: row for i, row in enumerate(safe_session_get("original_parse", []))}
             save_list_manual = []
             
             for idx, (_, edited_row) in enumerate(edited_df.iterrows()):
@@ -915,10 +1028,10 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
                     
                     saved_count = save_batch_one_by_one(records_to_save)
                     st.success(f"✅ 成功保存 {saved_count} 条修正数据")
-                    SessionStateManager.safe_set("parse_result", pd.DataFrame())
-                    SessionStateManager.safe_set("original_parse", [])
+                    safe_session_set("parse_result", pd.DataFrame())
+                    safe_session_set("original_parse", [])
             
-            SessionStateManager.safe_set("saving_in_progress", False)
+            safe_session_set("saving_in_progress", False)
 
 # ==================== 设置面板 ====================
 with st.expander("⚙️ 系统设置", expanded=False):
@@ -934,7 +1047,6 @@ with st.expander("⚙️ 系统设置", expanded=False):
             st.success(f"✅ 阈值已更新为 {new_th} 元")
 
 # ==================== 主标签页 ====================
-# 🔧 修复：将数据获取移至此处，确保会话已完全初始化
 df = get_clean_data()
 all_models = sorted(df["型号"].unique()) if not df.empty else []
 
@@ -1138,7 +1250,7 @@ with tab4:
                 total_items = len(items)
                 page_size = st.selectbox("每页显示", options=[10,20,50], index=1, key="pgsize")
                 total_pages = max(1, (total_items + page_size -1) // page_size)
-                current_page = SessionStateManager.safe_get("current_page_tab4", 1)
+                current_page = safe_session_get("current_page_tab4", 1)
 
                 col1, col2, col3, col4, col5 = st.columns([1,1,2,1,1])
                 with col1:
@@ -1162,7 +1274,7 @@ with tab4:
                     if st.button("尾页🚩", use_container_width=True):
                         current_page = total_pages
 
-                SessionStateManager.safe_set("current_page_tab4", current_page)
+                safe_session_set("current_page_tab4", current_page)
                 paginated_items = paginate(items, page_size, current_page)
                 render_grid_buttons(paginated_items, columns=2, prefix="filter_tab4")
                 st.markdown('</div>', unsafe_allow_html=True)
@@ -1182,8 +1294,9 @@ if not df.empty:
     
     with col1:
         idx = 0
-        if SessionStateManager.safe_get("selected_model", "") in all_models:
-            idx = all_models.index(SessionStateManager.safe_get("selected_model", "")) + 1
+        selected_model = safe_session_get("selected_model", "")
+        if selected_model in all_models:
+            idx = all_models.index(selected_model) + 1
         
         target = st.selectbox(
             "🔍 选择或搜索型号",
@@ -1193,19 +1306,19 @@ if not df.empty:
         )
     
     if target:
-        SessionStateManager.safe_set("selected_model", target)
+        safe_session_set("selected_model", target)
         
         with col2:
             isfav = target in get_favorites()
             btn_txt = "⭐ 取消收藏" if isfav else "☆ 添加收藏"
             if st.button(btn_txt, use_container_width=True):
                 toggle_favorite(target)
-                st.rerun()
+                SessionStateManager.safe_rerun()
         
         with col3:
             if st.button("📈 查看走势", use_container_width=True):
-                SessionStateManager.safe_set("scroll_to_bottom", True)
-                st.rerun()
+                safe_session_set("scroll_to_bottom", True)
+                SessionStateManager.safe_rerun()
         
         st.markdown("---")
         st.markdown(f"### 💰 {target} 心理价位设置")
@@ -1224,7 +1337,7 @@ if not df.empty:
             if st.button("💾 保存", use_container_width=True):
                 save_price_rule(target, b, s)
                 st.success("✅ 保存成功")
-                st.rerun()
+                SessionStateManager.safe_rerun()
 
         model_data = df[df["型号"] == target].sort_values("时间", ascending=False)
         if not model_data.empty:
@@ -1295,7 +1408,7 @@ if not df.empty:
                 
                 st.success("✅ 修改已保存")
                 get_clean_data.clear()
-                st.rerun()
+                SessionStateManager.safe_rerun()
 
             st.markdown("---")
             st.subheader(f"📈 {target} 价格走势分析")
@@ -1322,14 +1435,14 @@ else:
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ==================== 自动滚动 ====================
-if SessionStateManager.safe_get("scroll_to_bottom", False):
+if safe_session_get("scroll_to_bottom", False):
     auto_scroll = """
     <script>
         window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
     </script>
     """
     st.components.v1.html(auto_scroll, height=0)
-    SessionStateManager.safe_set("scroll_to_bottom", False)
+    safe_session_set("scroll_to_bottom", False)
 
 # ==================== 清理缓存 ====================
 smart_cache_clear()
