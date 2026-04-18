@@ -934,6 +934,7 @@ with st.expander("⚙️ 系统设置", expanded=False):
             st.success(f"✅ 阈值已更新为 {new_th} 元")
 
 # ==================== 主标签页 ====================
+# 🔧 修复：将数据获取移至此处，确保会话已完全初始化
 df = get_clean_data()
 all_models = sorted(df["型号"].unique()) if not df.empty else []
 
