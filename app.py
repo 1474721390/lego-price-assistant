@@ -1430,7 +1430,7 @@ if not df.empty:
             with col4:
                 st.metric("记录条数", record_count)
             
-            # ========== 历史数据编辑表格（移到走势图之前） ==========
+            # ========== 历史数据编辑表格 ==========
             st.markdown("---")
             st.markdown("#### 📝 历史数据编辑")
             
@@ -1439,6 +1439,7 @@ if not df.empty:
                     return t_str[:10]
                 return t_str
 
+            # 保留 id 和 原始时间 用于逻辑，但不在 UI 显示
             show = model_data[["id", "原始时间", "型号", "价格", "remark"]].copy()
             show["日期"] = show["原始时间"].apply(format_date)
             show.rename(columns={"remark": "备注"}, inplace=True)
@@ -1454,9 +1455,9 @@ if not df.empty:
                         "价格": st.column_config.NumberColumn("价格", width="small"),
                         "备注": st.column_config.TextColumn("备注", width="medium"),
                         "日期": st.column_config.TextColumn("日期", disabled=True, width="small"),
-                        "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
-                        "原始时间": st.column_config.TextColumn("原始时间", disabled=True, width="medium"),
+                        # id 和 原始时间 不配置，并通过 column_order 隐藏
                     },
+                    column_order=["删除", "型号", "价格", "备注", "日期"],  # 仅显示这些列
                     use_container_width=True,
                     hide_index=True,
                     key=f"editor_{target}"
@@ -1479,7 +1480,7 @@ if not df.empty:
                 get_clean_data.clear()
                 SessionStateManager.safe_rerun()
 
-            # ========== 价格走势分析（移到编辑表格之后） ==========
+            # ========== 价格走势分析 ==========
             st.markdown("---")
             st.subheader(f"📈 {target} 价格走势分析")
             rules = get_price_rules()
