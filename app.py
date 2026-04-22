@@ -1033,43 +1033,23 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
             
             safe_session_set("saving_in_progress", False)
 
-# ==================== 主标签页（仅保留价格预警和价格筛选） ====================
-df = get_clean_data()
-all_models = sorted(df["型号"].unique()) if not df.empty else []
-
-# ---------- C. 可折叠侧边栏（Streamlit 原生侧边栏，默认可折叠）----------
+# ==================== 侧边栏（价格预警 + 价格筛选，默认折叠） ====================
 with st.sidebar:
-    st.markdown("## 🧰 快捷工具")
-    st.caption("侧边栏可折叠")
-    # 可以放置一些快捷筛选或统计信息
-    st.metric("📦 总型号数", len(all_models))
-    if st.button("🔄 刷新数据"):
-        get_clean_data.clear()
-        st.rerun()
+    st.markdown("## 🎛️ 辅助工具")
+    st.caption("点击下方展开对应功能")
 
-tab1, tab2 = st.tabs([
-    "🚨 价格预警",
-    "🔍 价格筛选"
-])
+    # 获取数据（用于后续显示）
+    df_sidebar = get_clean_data()
+    all_models_sidebar = sorted(df_sidebar["型号"].unique()) if not df_sidebar.empty else []
 
-# ------------------------------
-# Tab 1: 价格预警
-# ------------------------------
-with tab1:
-    # A. 整体折叠标签页内容
-    with st.expander("📌 点击展开「价格预警」内容", expanded=False):
-        st.markdown("### 🚨 价格异常波动预警")
-        
-        # B. 内部折叠筛选条件
-        with st.expander("🔽 价格筛选条件（点击展开）", expanded=False):
-            col_min, col_max = st.columns(2)
-            with col_min:
-                min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_alert")
-            with col_max:
-                max_price_alert = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_alert")
-        
-        st.divider()
-        
+    # ---------- 价格预警折叠块 ----------
+    with st.expander("🚨 价格预警", expanded=False):
+        col_min, col_max = st.columns(2)
+        with col_min:
+            min_price_alert = st.number_input("最低价格", min_value=0, value=0, step=10, key="sidebar_min_price_alert")
+        with col_max:
+            max_price_alert = st.number_input("最高价格", min_value=0, value=100, step=10, key="sidebar_max_price_alert")
+
         alerts = get_alerts()
         if alerts:
             filtered_alerts = []
@@ -1086,123 +1066,68 @@ with tab1:
             down_list = [a for a in filtered_alerts if a["trend"] == "下跌"]
             up_list.sort(key=lambda x: -x["abs_diff"])
             down_list.sort(key=lambda x: -x["abs_diff"])
-            
-            col_up, col_down = st.columns(2)
-            with col_up:
-                st.markdown("##### 📈 涨价预警")
-                if up_list:
-                    st.markdown('<div class="scroll-box">', unsafe_allow_html=True)
-                    items = []
-                    for a in up_list:
-                        star = "⭐" if a["is_fav"] else ""
-                        items.append((
-                            f"{star} {a['model']} | +{a['abs_diff']}元 | 现价 ¥{a['last']}",
-                            a['model']
-                        ))
-                    render_grid_buttons(items, columns=1, prefix="alert_up")
-                    st.markdown('</div>', unsafe_allow_html=True)
-                else:
-                    st.caption("无上涨预警")
-            
-            with col_down:
-                st.markdown("##### 📉 跌价预警")
-                if down_list:
-                    st.markdown('<div class="scroll-box">', unsafe_allow_html=True)
-                    items = []
-                    for a in down_list:
-                        star = "⭐" if a["is_fav"] else ""
-                        items.append((
-                            f"{star} {a['model']} | -{a['abs_diff']}元 | 现价 ¥{a['last']}",
-                            a['model']
-                        ))
-                    render_grid_buttons(items, columns=1, prefix="alert_down")
-                    st.markdown('</div>', unsafe_allow_html=True)
-                else:
-                    st.caption("无下跌预警")
+
+            # 涨价预警
+            st.markdown("##### 📈 涨价预警")
+            if up_list:
+                for a in up_list[:5]:  # 侧边栏空间有限，只显示前5条
+                    star = "⭐" if a["is_fav"] else ""
+                    st.write(f"{star} {a['model']} | +{a['abs_diff']}元 | 现价 ¥{a['last']}")
+                if len(up_list) > 5:
+                    st.caption(f"... 还有 {len(up_list)-5} 条")
+            else:
+                st.caption("无上涨预警")
+
+            st.divider()
+
+            # 跌价预警
+            st.markdown("##### 📉 跌价预警")
+            if down_list:
+                for a in down_list[:5]:
+                    star = "⭐" if a["is_fav"] else ""
+                    st.write(f"{star} {a['model']} | -{a['abs_diff']}元 | 现价 ¥{a['last']}")
+                if len(down_list) > 5:
+                    st.caption(f"... 还有 {len(down_list)-5} 条")
+            else:
+                st.caption("无下跌预警")
         else:
             st.info("✅ 暂无价格异常波动")
 
-# ------------------------------
-# Tab 2: 价格筛选
-# ------------------------------
-with tab2:
-    # A. 整体折叠标签页内容
-    with st.expander("📌 点击展开「价格筛选」内容", expanded=False):
-        st.markdown("### 🔍 价格区间筛选")
-        
-        # B. 内部折叠筛选条件
-        with st.expander("🔽 价格筛选条件（点击展开）", expanded=False):
-            col_min, col_max = st.columns(2)
-            with col_min:
-                min_price = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_tab2")
-            with col_max:
-                max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_tab2")
-        
+    # ---------- 价格筛选折叠块 ----------
+    with st.expander("🔍 价格筛选", expanded=False):
+        col_min2, col_max2 = st.columns(2)
+        with col_min2:
+            min_price = st.number_input("最低价格", min_value=0, value=0, step=10, key="sidebar_min_price_tab2")
+        with col_max2:
+            max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="sidebar_max_price_tab2")
+
         if min_price >= max_price and max_price > 0:
             st.warning("⚠️ 最高价格应大于最低价格")
         else:
-            df_clean = get_clean_data()
-            if not df_clean.empty:
-                latest_df = df_clean.sort_values('时间').groupby('型号').tail(1)
-                
+            if not df_sidebar.empty:
+                latest_df = df_sidebar.sort_values('时间').groupby('型号').tail(1)
+
                 if max_price > 0:
                     filtered_df = latest_df[(latest_df['价格'] >= min_price) & (latest_df['价格'] <= max_price)]
                 else:
                     filtered_df = latest_df[latest_df['价格'] >= min_price]
-                
+
                 filtered_df = filtered_df.sort_values('价格', ascending=False)
-                
+
                 if not filtered_df.empty:
-                    st.markdown('<div class="scroll-box">', unsafe_allow_html=True)
-                    items = []
-                    latest_info = get_latest_history()
-                    
-                    for _, row in filtered_df.iterrows():
+                    st.markdown(f"**共 {len(filtered_df)} 个型号**")
+                    # 简单列表显示前10个
+                    for _, row in filtered_df.head(10).iterrows():
                         model = row['型号']
                         price = row['价格']
                         remark = row.get('remark', '')
-                        count = len(df_clean[df_clean['型号'] == model])
-                        last_time = latest_info.get(model, {}).get('last_time', '无时间')
-                        
                         remark_str = f" | {remark}" if remark else ""
-                        items.append((
-                            f"**{model}** | ¥{price}{remark_str} | 共{count}条 | {last_time}",
-                            model
-                        ))
-                    
-                    total_items = len(items)
-                    page_size = st.selectbox("每页显示", options=[10,20,50], index=1, key="pgsize_tab2")
-                    total_pages = max(1, (total_items + page_size -1) // page_size)
-                    current_page = safe_session_get("current_page_tab2", 1)
-
-                    col1, col2, col3, col4, col5 = st.columns([1,1,2,1,1])
-                    with col1:
-                        if st.button("🏠首页", use_container_width=True):
-                            current_page = 1
-                    with col2:
-                        if st.button("⬅️上一页", use_container_width=True):
-                            current_page = max(1, current_page -1)
-                    with col3:
-                        page_input = st.text_input("页码", value=f"{current_page}", label_visibility="collapsed")
-                        try:
-                            input_page = int(page_input)
-                            if 1 <= input_page <= total_pages:
-                                current_page = input_page
-                        except:
-                            pass
-                    with col4:
-                        if st.button("下一页➡️", use_container_width=True):
-                            current_page = min(total_pages, current_page +1)
-                    with col5:
-                        if st.button("尾页🚩", use_container_width=True):
-                            current_page = total_pages
-
-                    safe_session_set("current_page_tab2", current_page)
-                    paginated_items = paginate(items, page_size, current_page)
-                    render_grid_buttons(paginated_items, columns=2, prefix="filter_tab2")
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    st.caption(f"📊 共 {total_items} 个型号 | 第 {current_page}/{total_pages} 页")
+                        if st.button(f"{model} ¥{price}{remark_str}", key=f"sidebar_filter_{model}"):
+                            safe_session_set("selected_model", model)
+                            safe_session_set("scroll_to_bottom", True)
+                            SessionStateManager.safe_rerun()
+                    if len(filtered_df) > 10:
+                        st.caption(f"... 还有 {len(filtered_df)-10} 个型号")
                 else:
                     st.info("🔍 未找到符合条件的数据")
             else:
