@@ -1376,7 +1376,6 @@ st.subheader("📋 历史数据详细管理")
 # 自定义 CSS：固定表格容器高度，强制显示垂直滚动条，防止闪烁
 st.markdown("""
 <style>
-    /* 固定表格容器高度，并始终显示滚动条（即使内容未溢出） */
     .fixed-table-container {
         max-height: 400px;
         overflow-y: scroll !important;
@@ -1384,7 +1383,6 @@ st.markdown("""
         border-radius: 12px;
         margin-bottom: 16px;
     }
-    /* 隐藏横向滚动条（可选，若表格列过多仍会显示） */
     .fixed-table-container::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -1432,14 +1430,7 @@ if not df.empty:
             with col4:
                 st.metric("记录条数", record_count)
             
-            # 走势图
-            st.markdown("---")
-            st.subheader(f"📈 {target} 价格走势分析")
-            rules = get_price_rules()
-            fig = plot_enhanced_trend(model_data.sort_values("时间"), target, rules)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # 历史数据编辑表格（固定高度容器防止滚动条闪烁）
+            # ========== 历史数据编辑表格（移到走势图之前） ==========
             st.markdown("---")
             st.markdown("#### 📝 历史数据编辑")
             
@@ -1453,7 +1444,6 @@ if not df.empty:
             show.rename(columns={"remark": "备注"}, inplace=True)
             show.insert(0, "删除", False)
 
-            # 使用自定义容器包裹 data_editor
             with st.container():
                 st.markdown('<div class="fixed-table-container">', unsafe_allow_html=True)
                 ed_table = st.data_editor(
@@ -1488,6 +1478,14 @@ if not df.empty:
                 st.success("✅ 修改已保存")
                 get_clean_data.clear()
                 SessionStateManager.safe_rerun()
+
+            # ========== 价格走势分析（移到编辑表格之后） ==========
+            st.markdown("---")
+            st.subheader(f"📈 {target} 价格走势分析")
+            rules = get_price_rules()
+            fig = plot_enhanced_trend(model_data.sort_values("时间"), target, rules)
+            st.plotly_chart(fig, use_container_width=True)
+            
         else:
             st.info("该型号暂无数据")
     else:
