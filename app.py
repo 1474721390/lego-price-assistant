@@ -1052,16 +1052,16 @@ st.markdown("""
     }
     /* 侧边栏全局字体缩小 */
     .stSidebar {
-        font-size: 0.75rem !important;
+        font-size: 0.7rem !important;
     }
-    /* 侧边栏内按钮文本自动换行 */
+    /* 侧边栏内按钮文本自动换行，但保留数字单位不拆分（通过内部处理） */
     .stSidebar .stButton > button {
         white-space: normal !important;
         word-wrap: break-word !important;
         text-align: left !important;
-        padding: 6px 8px !important;
-        line-height: 1.3 !important;
-        font-size: 0.75rem !important;
+        padding: 4px 6px !important;
+        line-height: 1.2 !important;
+        font-size: 0.7rem !important;
         height: auto !important;
         min-height: unset !important;
     }
@@ -1071,12 +1071,17 @@ st.markdown("""
         padding-right: 2px !important;
     }
     .stSidebar .stMarkdown p {
-        font-size: 0.75rem !important;
-        margin-bottom: 0.2rem !important;
+        font-size: 0.7rem !important;
+        margin-bottom: 0.1rem !important;
     }
     .stSidebar .stSelectbox label,
     .stSidebar .stNumberInput label {
-        font-size: 0.7rem !important;
+        font-size: 0.65rem !important;
+    }
+    /* 紧凑化下拉框和输入框 */
+    .stSidebar .stSelectbox > div,
+    .stSidebar .stNumberInput > div {
+        margin-bottom: 4px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1109,7 +1114,7 @@ with st.sidebar:
     st.markdown("## 🎛️ 辅助工具")
     st.caption("点击下方展开对应功能，设置价格区间后点击“确定查询”")
 
-    # ---------- 初始化侧边栏 session_state（两栏独立分页） ----------
+    # ---------- 初始化侧边栏 session_state ----------
     if "sidebar_alert_up_page" not in st.session_state:
         st.session_state.sidebar_alert_up_page = 1
     if "sidebar_alert_up_page_size" not in st.session_state:
@@ -1164,7 +1169,6 @@ with st.sidebar:
                 st.session_state.sidebar_alert_result = {"up": up_list, "down": down_list}
             else:
                 st.session_state.sidebar_alert_result = {"up": [], "down": []}
-            # 重置两栏页码为1
             st.session_state.sidebar_alert_up_page = 1
             st.session_state.sidebar_alert_down_page = 1
 
@@ -1173,10 +1177,8 @@ with st.sidebar:
             up_list = alert_result["up"]
             down_list = alert_result["down"]
 
-            # 左右并排显示
             col_left, col_right = st.columns(2)
 
-            # ---------- 左栏：涨价 ----------
             with col_left:
                 st.markdown("##### 📈 涨价")
                 page_size_up = st.selectbox("每页", options=[10, 20, 50], 
@@ -1196,7 +1198,8 @@ with st.sidebar:
                     for a in page_items:
                         star = "⭐" if a["is_fav"] else ""
                         changes_str = ",".join([f"+{c}" if c>0 else str(c) for c in a["today_changes"]])
-                        content = f"{star} {a['model']}\n现¥{a['last']} | +{a['today_total_diff']}元\n当天:{changes_str}"
+                        # 防止换行拆分数字单位：将空格替换为 &nbsp;
+                        content = f"{star} {a['model']}\n现¥{a['last']} | +{a['today_total_diff']}元\n当天:{changes_str}".replace(" ", "\u00A0")
                         if st.button(content, key=f"alert_up_{a['model']}_{current_page}"):
                             safe_session_set("selected_model", a["model"])
                             safe_session_set("scroll_to_bottom", True)
@@ -1219,7 +1222,6 @@ with st.sidebar:
                 else:
                     st.caption("无")
 
-            # ---------- 右栏：跌价 ----------
             with col_right:
                 st.markdown("##### 📉 跌价")
                 page_size_down = st.selectbox("每页", options=[10, 20, 50],
@@ -1239,7 +1241,7 @@ with st.sidebar:
                     for a in page_items:
                         star = "⭐" if a["is_fav"] else ""
                         changes_str = ",".join([f"+{c}" if c>0 else str(c) for c in a["today_changes"]])
-                        content = f"{star} {a['model']}\n现¥{a['last']} | {a['today_total_diff']}元\n当天:{changes_str}"
+                        content = f"{star} {a['model']}\n现¥{a['last']} | {a['today_total_diff']}元\n当天:{changes_str}".replace(" ", "\u00A0")
                         if st.button(content, key=f"alert_down_{a['model']}_{current_page}"):
                             safe_session_set("selected_model", a["model"])
                             safe_session_set("scroll_to_bottom", True)
@@ -1264,7 +1266,7 @@ with st.sidebar:
         else:
             st.caption("设置价格区间后点击“确定查询”查看预警")
 
-    # ---------- 价格筛选折叠块 ----------
+    # ---------- 价格筛选折叠块（左右并排显示） ----------
     with st.expander("🔍 价格筛选", expanded=False):
         col_min2, col_max2 = st.columns(2)
         with col_min2:
@@ -1327,29 +1329,28 @@ with st.sidebar:
 
                 st.markdown(f"**共 {total_items} 个型号**")
 
-                # 🔥 改为左右并排显示
-                col_left, col_right = st.columns(2)
-                # 将当前页条目分配到左右两列（交替分配使高度更均衡）
-                left_items = page_items[0::2]
-                right_items = page_items[1::2]
+                # 将当前页项目分为左右两栏（左栏比右栏多一个，如果总数奇数）
+                mid = (len(page_items) + 1) // 2
+                left_items = page_items[:mid]
+                right_items = page_items[mid:]
 
-                with col_left:
+                col_left2, col_right2 = st.columns(2)
+                with col_left2:
                     for item in left_items:
-                        btn_label = f"{item['model']} ¥{item['price']}{item['remark_str']}\n{item['count']}条"
-                        if st.button(btn_label, key=f"sidebar_filter_left_{item['model']}_{current_page}"):
+                        # 防止数字+单位被拆分，用 &nbsp; 替换空格
+                        btn_label = f"{item['model']} ¥{item['price']}{item['remark_str']} | {item['count']}条".replace(" ", "\u00A0")
+                        if st.button(btn_label, key=f"sidebar_filter_{item['model']}_{current_page}"):
                             safe_session_set("selected_model", item['model'])
                             safe_session_set("scroll_to_bottom", True)
                             st.rerun()
-
-                with col_right:
+                with col_right2:
                     for item in right_items:
-                        btn_label = f"{item['model']} ¥{item['price']}{item['remark_str']}\n{item['count']}条"
-                        if st.button(btn_label, key=f"sidebar_filter_right_{item['model']}_{current_page}"):
+                        btn_label = f"{item['model']} ¥{item['price']}{item['remark_str']} | {item['count']}条".replace(" ", "\u00A0")
+                        if st.button(btn_label, key=f"sidebar_filter_{item['model']}_{current_page}_r"):
                             safe_session_set("selected_model", item['model'])
                             safe_session_set("scroll_to_bottom", True)
                             st.rerun()
 
-                # 分页控件（保持不变）
                 if total_pages > 1:
                     cols = st.columns(3)
                     with cols[0]:
