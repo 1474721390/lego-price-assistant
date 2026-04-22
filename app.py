@@ -50,7 +50,7 @@ def streamlit_safe(func):
                     "parse_result": pd.DataFrame(),
                     "original_parse": [],
                     "pending_cache_clear": False,
-                    "current_page_tab4": 1,
+                    "current_page_tab2": 1,
                     "parse_triggered": False,
                     "save_triggered": False,
                     "parsing_in_progress": False,
@@ -98,7 +98,7 @@ class SessionStateManager:
                     "parse_result": pd.DataFrame(),
                     "original_parse": [],
                     "pending_cache_clear": False,
-                    "current_page_tab4": 1,
+                    "current_page_tab2": 1,
                     "parse_triggered": False,
                     "save_triggered": False,
                     "parsing_in_progress": False,
@@ -374,7 +374,7 @@ def save_price_rule(model, buy, sell):
     ).execute()
     get_price_rules.clear()
 
-# ==================== 阈值设置 ====================
+# ==================== 阈值设置（保留函数定义，但不再在UI中使用） ====================
 @st.cache_data(ttl=300, show_spinner=False)
 def get_alert_threshold():
     res = supabase.table("settings").select("alert_threshold").limit(1).execute()
@@ -1033,114 +1033,19 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
             
             safe_session_set("saving_in_progress", False)
 
-# ==================== 设置面板 ====================
-with st.expander("⚙️ 系统设置", expanded=False):
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.write("调整系统参数")
-    with col2:
-        th = get_alert_threshold()
-        new_th = st.number_input("⚠️ 价格波动预警阈值", min_value=1, value=th, 
-                                 help="当价格波动超过此值时触发预警")
-        if new_th != th:
-            set_alert_threshold(new_th)
-            st.success(f"✅ 阈值已更新为 {new_th} 元")
-
-# ==================== 主标签页 ====================
+# ==================== 主标签页（仅保留价格预警和价格筛选） ====================
 df = get_clean_data()
 all_models = sorted(df["型号"].unique()) if not df.empty else []
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "⭐ 我的收藏", 
-    "📈 涨跌排行", 
-    "🚨 价格预警", 
+tab1, tab2 = st.tabs([
+    "🚨 价格预警",
     "🔍 价格筛选"
 ])
 
 # ------------------------------
-# Tab 1: 我的收藏
+# Tab 1: 价格预警
 # ------------------------------
 with tab1:
-    st.markdown("### ❤️ 我的收藏型号")
-    favs = get_favorites()
-    
-    if favs:
-        st.markdown('<div class="scroll-box">', unsafe_allow_html=True)
-        cols = st.columns(3)
-        fav_items = []
-        
-        for m in sorted(favs):
-            s = df[df["型号"] == m]
-            if len(s) < 2:
-                fav_items.append((f"{m}\n(数据不足)", m))
-            else:
-                s_sorted = s.sort_values("时间")
-                first_price = s_sorted.iloc[0]["价格"]
-                last_price = s_sorted.iloc[-1]["价格"]
-                diff = last_price - first_price
-                icon = "📈" if diff > 0 else "📉" if diff < 0 else "➡️"
-                
-                latest_remark = s_sorted.iloc[-1].get("remark", "")
-                remark_text = f" | {latest_remark}" if latest_remark else ""
-                
-                fav_items.append((
-                    f"**{m}** {icon} {diff:+}元\n\n¥{last_price}{remark_text}",
-                    m
-                ))
-        
-        render_grid_buttons(fav_items, columns=1, prefix="fav_tab")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.divider()
-        st.caption(f"📊 共收藏 {len(favs)} 个型号")
-    else:
-        st.info("💡 暂无收藏型号，在下方历史数据管理中点击收藏按钮即可添加")
-
-# ------------------------------
-# Tab 2: 涨跌幅排行
-# ------------------------------
-with tab2:
-    st.markdown("### 📊 价格波动排行榜")
-    
-    c7, c30 = st.columns(2)
-    with c7:
-        st.markdown("#### 📈 近7天涨幅TOP10")
-        t7 = get_trend(7)
-        if t7:
-            st.markdown('<div class="scroll-box">', unsafe_allow_html=True)
-            items = []
-            for item in t7[:10]:
-                icon = "🔥" if item['diff'] > 100 else "📈" if item['diff'] > 0 else "📉"
-                items.append((
-                    f"{icon} {item['model']} | {item['diff']:+}元 | 现价 ¥{item['last']}",
-                    item['model']
-                ))
-            render_grid_buttons(items, columns=1, prefix="trend7")
-            st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.caption("暂无数据")
-    
-    with c30:
-        st.markdown("#### 📉 近30天波动TOP10")
-        t30 = get_trend(30)
-        if t30:
-            st.markdown('<div class="scroll-box">', unsafe_allow_html=True)
-            items = []
-            for item in t30[:10]:
-                icon = "🔥" if abs(item['diff']) > 200 else "📊"
-                items.append((
-                    f"{icon} {item['model']} | {item['diff']:+}元 | 现价 ¥{item['last']}",
-                    item['model']
-                ))
-            render_grid_buttons(items, columns=1, prefix="trend30")
-            st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.caption("暂无数据")
-
-# ------------------------------
-# Tab 3: 价格预警
-# ------------------------------
-with tab3:
     st.markdown("### 🚨 价格异常波动预警")
     
     col_min, col_max = st.columns(2)
@@ -1204,16 +1109,16 @@ with tab3:
         st.info("✅ 暂无价格异常波动")
 
 # ------------------------------
-# Tab 4: 价格筛选
+# Tab 2: 价格筛选
 # ------------------------------
-with tab4:
+with tab2:
     st.markdown("### 🔍 价格区间筛选")
     
     col_min, col_max = st.columns(2)
     with col_min:
-        min_price = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_tab4")
+        min_price = st.number_input("最低价格", min_value=0, value=0, step=10, key="min_price_tab2")
     with col_max:
-        max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_tab4")
+        max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="max_price_tab2")
     
     if min_price >= max_price and max_price > 0:
         st.warning("⚠️ 最高价格应大于最低价格")
@@ -1248,9 +1153,9 @@ with tab4:
                     ))
                 
                 total_items = len(items)
-                page_size = st.selectbox("每页显示", options=[10,20,50], index=1, key="pgsize")
+                page_size = st.selectbox("每页显示", options=[10,20,50], index=1, key="pgsize_tab2")
                 total_pages = max(1, (total_items + page_size -1) // page_size)
-                current_page = safe_session_get("current_page_tab4", 1)
+                current_page = safe_session_get("current_page_tab2", 1)
 
                 col1, col2, col3, col4, col5 = st.columns([1,1,2,1,1])
                 with col1:
@@ -1274,9 +1179,9 @@ with tab4:
                     if st.button("尾页🚩", use_container_width=True):
                         current_page = total_pages
 
-                safe_session_set("current_page_tab4", current_page)
+                safe_session_set("current_page_tab2", current_page)
                 paginated_items = paginate(items, page_size, current_page)
-                render_grid_buttons(paginated_items, columns=2, prefix="filter_tab4")
+                render_grid_buttons(paginated_items, columns=2, prefix="filter_tab2")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
                 st.caption(f"📊 共 {total_items} 个型号 | 第 {current_page}/{total_pages} 页")
@@ -1393,7 +1298,6 @@ if not df.empty:
                 key=f"editor_{target}"
             )
 
-            # 🔥 统一蓝底白字按钮
             if st.button("💾 保存修改 & 删除选中", type="primary", key=f"save_{target}"):
                 del_ids = ed_table[ed_table["删除"] == True]["id"].tolist()
                 for did in del_ids:
