@@ -1204,22 +1204,18 @@ with st.sidebar:
                             st.rerun()
 
                     # 分页控件
-                    if total_pages > 1:
-                        c1, c2, c3 = st.columns([1,2,1])
-                        with c1:
-                            if st.button("◀", key="alert_up_prev", disabled=(current_page==1), use_container_width=True):
-                                st.session_state.sidebar_alert_up_page = max(1, current_page-1)
-                                st.rerun()
-                        with c2:
-                            st.markdown(f"<div style='text-align:center;font-size:0.7rem;'>{current_page}/{total_pages}</div>", unsafe_allow_html=True)
-                        with c3:
-                            if st.button("▶", key="alert_up_next", disabled=(current_page==total_pages), use_container_width=True):
-                                st.session_state.sidebar_alert_up_page = min(total_pages, current_page+1)
-                                st.rerun()
-                    else:
-                        st.caption(f"共 {total_up} 条")
-                else:
-                    st.caption("无")
+                   if total_pages > 1:
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("◀", key="alert_down_prev", disabled=(current_page==1), use_container_width=True):
+            st.session_state.sidebar_alert_down_page = max(1, current_page-1)
+            st.rerun()
+    with c2:
+        st.markdown(f"<div style='text-align:center;font-size:0.7rem;'>{current_page}/{total_pages}</div>", unsafe_allow_html=True)
+    with c3:
+        if st.button("▶", key="alert_down_next", disabled=(current_page==total_pages), use_container_width=True):
+            st.session_state.sidebar_alert_down_page = min(total_pages, current_page+1)
+            st.rerun()
 
             # ---------- 右栏：跌价 ----------
             with col_right:
@@ -1335,18 +1331,18 @@ with st.sidebar:
                         safe_session_set("scroll_to_bottom", True)
                         st.rerun()
 
-                if total_pages > 1:
-                    cols = st.columns([1, 2, 1])
-                    with cols[0]:
-                        if st.button("◀ 上一页", key="filter_prev", disabled=(current_page == 1), use_container_width=True):
-                            st.session_state.sidebar_filter_page = max(1, current_page - 1)
-                            st.rerun()
-                    with cols[1]:
-                        st.markdown(f"<div style='text-align: center;'>{current_page}/{total_pages}</div>", unsafe_allow_html=True)
-                    with cols[2]:
-                        if st.button("下一页 ▶", key="filter_next", disabled=(current_page == total_pages), use_container_width=True):
-                            st.session_state.sidebar_filter_page = min(total_pages, current_page + 1)
-                            st.rerun()
+               if total_pages > 1:
+    cols = st.columns(3)
+    with cols[0]:
+        if st.button("◀ 上一页", key="filter_prev", disabled=(current_page == 1), use_container_width=True):
+            st.session_state.sidebar_filter_page = max(1, current_page - 1)
+            st.rerun()
+    with cols[1]:
+        st.markdown(f"<div style='text-align: center;'>{current_page}/{total_pages}</div>", unsafe_allow_html=True)
+    with cols[2]:
+        if st.button("下一页 ▶", key="filter_next", disabled=(current_page == total_pages), use_container_width=True):
+            st.session_state.sidebar_filter_page = min(total_pages, current_page + 1)
+            st.rerun()
         else:
             st.caption("设置价格区间后点击“确定查询”查看型号")
 
