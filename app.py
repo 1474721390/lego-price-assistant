@@ -1374,7 +1374,6 @@ st.markdown('<div class="data-manager-card">', unsafe_allow_html=True)
 st.subheader("📋 历史数据详细管理")
 
 if not df.empty:
-    # 型号选择栏（仅保留选择框）
     col1, col2 = st.columns([4, 1])
     with col1:
         idx = 0
@@ -1395,27 +1394,28 @@ if not df.empty:
         model_data = df[df["型号"] == target].sort_values("时间", ascending=False)
         if not model_data.empty:
             cur = model_data.iloc[0]["价格"]
+            highest = model_data["价格"].max()
+            lowest = model_data["价格"].min()
+            record_count = len(model_data)
             
-            # 仅显示当前价格（单卡居中或左对齐）
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
+            # 四个并排指标卡片
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
                 st.metric("当前价格", f"¥{cur}")
+            with col2:
+                st.metric("历史最高", f"¥{highest}")
+            with col3:
+                st.metric("历史最低", f"¥{lowest}")
+            with col4:
+                st.metric("记录条数", record_count)
             
-            # 获取心理价位（供走势图参考线使用，不显示）
+            # 走势图（保留心理价位参考线）
+            st.markdown("---")
+            st.subheader(f"📈 {target} 价格走势分析")
             rules = get_price_rules()
-            rule = rules.get(target, {"buy": 0, "sell": 0})
-            b = rule["buy"]
-            s = rule["sell"]
+            fig = plot_enhanced_trend(model_data.sort_values("时间"), target, rules)
+            st.plotly_chart(fig, use_container_width=True)
             
-            # 心理价位提示（保留，如果价格触及心理价位仍会提示）
-            tip = ""
-            if s > 0 and cur >= s:
-                tip = f"❤️ 当前价 ¥{cur} 已达到出货价位，可考虑出货！"
-            elif b > 0 and cur <= b:
-                tip = f"💚 当前价 ¥{cur} 已低于收货价位，可考虑收货！"
-            if tip:
-                st.info(tip)
-
             # 历史数据编辑表格
             st.markdown("---")
             st.markdown("#### 📝 历史数据编辑")
@@ -1461,26 +1461,6 @@ if not df.empty:
                 st.success("✅ 修改已保存")
                 get_clean_data.clear()
                 SessionStateManager.safe_rerun()
-
-            # 走势图
-            st.markdown("---")
-            st.subheader(f"📈 {target} 价格走势分析")
-            
-            fig = plot_enhanced_trend(model_data.sort_values("时间"), target, rules)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # 历史统计
-            if len(model_data) >= 2:
-                st.divider()
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("历史最高", f"¥{model_data['价格'].max()}")
-                with col2:
-                    st.metric("历史最低", f"¥{model_data['价格'].min()}")
-                with col3:
-                    st.metric("平均价格", f"¥{model_data['价格'].mean():.0f}")
-                with col4:
-                    st.metric("记录条数", len(model_data))
         else:
             st.info("该型号暂无数据")
     else:
