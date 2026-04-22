@@ -1034,13 +1034,43 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
             safe_session_set("saving_in_progress", False)
 
 # ==================== 侧边栏（价格预警 + 价格筛选，默认折叠） ====================
+# 自定义按钮样式：绿底黑字加粗
+st.markdown("""
+<style>
+    .stSidebar .stButton > button[kind="secondary"] {
+        background-color: #2ecc71 !important;
+        color: black !important;
+        font-weight: bold !important;
+        border: 1px solid #27ae60 !important;
+        border-radius: 8px !important;
+        transition: all 0.2s;
+    }
+    .stSidebar .stButton > button[kind="secondary"]:hover {
+        background-color: #27ae60 !important;
+        color: black !important;
+        box-shadow: 0 2px 8px rgba(46,204,113,0.4);
+    }
+</style>
+""", unsafe_allow_html=True)
+
 with st.sidebar:
     st.markdown("## 🎛️ 辅助工具")
-    st.caption("点击下方展开对应功能")
+    st.caption("点击下方展开对应功能，设置价格区间后点击“确定查询”")
 
-    # 获取数据（用于后续显示）
-    df_sidebar = get_clean_data()
-    all_models_sidebar = sorted(df_sidebar["型号"].unique()) if not df_sidebar.empty else []
+    # 初始化侧边栏相关 session_state
+    if "sidebar_alert_page" not in st.session_state:
+        st.session_state.sidebar_alert_page = 1
+    if "sidebar_alert_page_size" not in st.session_state:
+        st.session_state.sidebar_alert_page_size = 10
+    if "sidebar_filter_page" not in st.session_state:
+        st.session_state.sidebar_filter_page = 1
+    if "sidebar_filter_page_size" not in st.session_state:
+        st.session_state.sidebar_filter_page_size = 10
+    # 存储查询结果
+    if "sidebar_alert_result" not in st.session_state:
+        st.session_state.sidebar_alert_result = None
+    if "sidebar_filter_result" not in st.session_state:
+        st.session_state.sidebar_filter_result = None
 
     # ---------- 价格预警折叠块 ----------
     with st.expander("🚨 价格预警", expanded=False):
@@ -1050,87 +1080,168 @@ with st.sidebar:
         with col_max:
             max_price_alert = st.number_input("最高价格", min_value=0, value=100, step=10, key="sidebar_max_price_alert")
 
-        alerts = get_alerts()
-        if alerts:
+        # 分页大小选择
+        page_size_alert = st.selectbox("每页显示", options=[10, 20, 50], index=0, key="alert_page_size_select")
+
+        # 确定查询按钮
+        query_alert_clicked = st.button("🔍 确定查询", key="alert_query_btn", type="secondary", use_container_width=True)
+
+        if query_alert_clicked:
+            # 执行查询
+            alerts = get_alerts()
             filtered_alerts = []
-            for a in alerts:
-                current_price = a["last"]
-                if max_price_alert > 0:
-                    if min_price_alert <= current_price <= max_price_alert:
-                        filtered_alerts.append(a)
-                else:
-                    if current_price >= min_price_alert:
-                        filtered_alerts.append(a)
-
-            up_list = [a for a in filtered_alerts if a["trend"] == "上涨"]
-            down_list = [a for a in filtered_alerts if a["trend"] == "下跌"]
-            up_list.sort(key=lambda x: -x["abs_diff"])
-            down_list.sort(key=lambda x: -x["abs_diff"])
-
-            # 涨价预警
-            st.markdown("##### 📈 涨价预警")
-            if up_list:
-                for a in up_list[:5]:
-                    star = "⭐" if a["is_fav"] else ""
-                    st.write(f"{star} {a['model']} | +{a['abs_diff']}元 | 现价 ¥{a['last']}")
-                if len(up_list) > 5:
-                    st.caption(f"... 还有 {len(up_list)-5} 条")
+            if alerts:
+                for a in alerts:
+                    current_price = a["last"]
+                    if max_price_alert > 0:
+                        if min_price_alert <= current_price <= max_price_alert:
+                            filtered_alerts.append(a)
+                    else:
+                        if current_price >= min_price_alert:
+                            filtered_alerts.append(a)
+                # 按涨跌分组并排序
+                up_list = [a for a in filtered_alerts if a["trend"] == "上涨"]
+                down_list = [a for a in filtered_alerts if a["trend"] == "下跌"]
+                up_list.sort(key=lambda x: -x["abs_diff"])
+                down_list.sort(key=lambda x: -x["abs_diff"])
+                st.session_state.sidebar_alert_result = {"up": up_list, "down": down_list}
             else:
-                st.caption("无上涨预警")
+                st.session_state.sidebar_alert_result = {"up": [], "down": []}
+            st.session_state.sidebar_alert_page = 1
+            st.session_state.sidebar_alert_page_size = page_size_alert
 
-            st.divider()
+        # 显示结果（如果有）
+        alert_result = st.session_state.sidebar_alert_result
+        if alert_result is not None:
+            up_list = alert_result["up"]
+            down_list = alert_result["down"]
+            page_size = st.session_state.sidebar_alert_page_size
+            current_page = st.session_state.sidebar_alert_page
 
-            # 跌价预警
-            st.markdown("##### 📉 跌价预警")
-            if down_list:
-                for a in down_list[:5]:
-                    star = "⭐" if a["is_fav"] else ""
-                    st.write(f"{star} {a['model']} | -{a['abs_diff']}元 | 现价 ¥{a['last']}")
-                if len(down_list) > 5:
-                    st.caption(f"... 还有 {len(down_list)-5} 条")
+            # 合并显示：先展示涨价，再展示跌价，各自独立分页？为了简单，合并分页
+            combined_list = []
+            for a in up_list:
+                combined_list.append(("📈", a))
+            for a in down_list:
+                combined_list.append(("📉", a))
+            total_items = len(combined_list)
+            total_pages = max(1, (total_items + page_size - 1) // page_size)
+
+            if total_items == 0:
+                st.info("📭 当前条件下无预警数据")
             else:
-                st.caption("无下跌预警")
+                start_idx = (current_page - 1) * page_size
+                end_idx = min(start_idx + page_size, total_items)
+                page_items = combined_list[start_idx:end_idx]
+
+                # 显示当前页数据
+                for trend_icon, a in page_items:
+                    star = "⭐" if a["is_fav"] else ""
+                    st.write(f"{star} {trend_icon} {a['model']} | {a['abs_diff']:+}元 | 现价 ¥{a['last']}")
+
+                # 分页控件
+                if total_pages > 1:
+                    cols = st.columns([1, 2, 1])
+                    with cols[0]:
+                        if st.button("◀ 上一页", key="alert_prev", disabled=(current_page == 1), use_container_width=True):
+                            st.session_state.sidebar_alert_page = max(1, current_page - 1)
+                            st.rerun()
+                    with cols[1]:
+                        st.markdown(f"<div style='text-align: center;'>{current_page}/{total_pages}</div>", unsafe_allow_html=True)
+                    with cols[2]:
+                        if st.button("下一页 ▶", key="alert_next", disabled=(current_page == total_pages), use_container_width=True):
+                            st.session_state.sidebar_alert_page = min(total_pages, current_page + 1)
+                            st.rerun()
         else:
-            st.info("✅ 暂无价格异常波动")
+            st.caption("设置价格区间后点击“确定查询”查看预警")
 
     # ---------- 价格筛选折叠块 ----------
     with st.expander("🔍 价格筛选", expanded=False):
         col_min2, col_max2 = st.columns(2)
         with col_min2:
-            min_price = st.number_input("最低价格", min_value=0, value=0, step=10, key="sidebar_min_price_tab2")
+            min_price = st.number_input("最低价格", min_value=0, value=0, step=10, key="sidebar_min_price_filter")
         with col_max2:
-            max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="sidebar_max_price_tab2")
+            max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="sidebar_max_price_filter")
 
-        if min_price >= max_price and max_price > 0:
-            st.warning("⚠️ 最高价格应大于最低价格")
-        else:
-            if not df_sidebar.empty:
-                latest_df = df_sidebar.sort_values('时间').groupby('型号').tail(1)
+        # 分页大小选择
+        page_size_filter = st.selectbox("每页显示", options=[10, 20, 50], index=0, key="filter_page_size_select")
 
-                if max_price > 0:
-                    filtered_df = latest_df[(latest_df['价格'] >= min_price) & (latest_df['价格'] <= max_price)]
-                else:
-                    filtered_df = latest_df[latest_df['价格'] >= min_price]
+        # 确定查询按钮
+        query_filter_clicked = st.button("🔍 确定查询", key="filter_query_btn", type="secondary", use_container_width=True)
 
-                filtered_df = filtered_df.sort_values('价格', ascending=False)
-
-                if not filtered_df.empty:
-                    st.markdown(f"**共 {len(filtered_df)} 个型号**")
-                    for _, row in filtered_df.head(10).iterrows():
+        if query_filter_clicked:
+            if min_price >= max_price and max_price > 0:
+                st.warning("⚠️ 最高价格应大于最低价格")
+                st.session_state.sidebar_filter_result = None
+            else:
+                df_clean = get_clean_data()
+                if not df_clean.empty:
+                    latest_df = df_clean.sort_values('时间').groupby('型号').tail(1)
+                    if max_price > 0:
+                        filtered_df = latest_df[(latest_df['价格'] >= min_price) & (latest_df['价格'] <= max_price)]
+                    else:
+                        filtered_df = latest_df[latest_df['价格'] >= min_price]
+                    filtered_df = filtered_df.sort_values('价格', ascending=False)
+                    # 转换为列表方便分页
+                    items = []
+                    latest_info = get_latest_history()
+                    for _, row in filtered_df.iterrows():
                         model = row['型号']
                         price = row['价格']
                         remark = row.get('remark', '')
+                        last_time = latest_info.get(model, {}).get('last_time', '无时间')
+                        count = len(df_clean[df_clean['型号'] == model])
                         remark_str = f" | {remark}" if remark else ""
-                        if st.button(f"{model} ¥{price}{remark_str}", key=f"sidebar_filter_{model}"):
-                            safe_session_set("selected_model", model)
-                            safe_session_set("scroll_to_bottom", True)
-                            SessionStateManager.safe_rerun()
-                    if len(filtered_df) > 10:
-                        st.caption(f"... 还有 {len(filtered_df)-10} 个型号")
+                        items.append({
+                            "model": model,
+                            "price": price,
+                            "remark_str": remark_str,
+                            "count": count,
+                            "last_time": last_time
+                        })
+                    st.session_state.sidebar_filter_result = items
                 else:
-                    st.info("🔍 未找到符合条件的数据")
+                    st.session_state.sidebar_filter_result = []
+            st.session_state.sidebar_filter_page = 1
+            st.session_state.sidebar_filter_page_size = page_size_filter
+
+        # 显示结果（如果有）
+        filter_result = st.session_state.sidebar_filter_result
+        if filter_result is not None:
+            if not filter_result:
+                st.info("🔍 未找到符合条件的数据")
             else:
-                st.info("📭 暂无数据")
+                total_items = len(filter_result)
+                page_size = st.session_state.sidebar_filter_page_size
+                current_page = st.session_state.sidebar_filter_page
+                total_pages = max(1, (total_items + page_size - 1) // page_size)
+
+                start_idx = (current_page - 1) * page_size
+                end_idx = min(start_idx + page_size, total_items)
+                page_items = filter_result[start_idx:end_idx]
+
+                st.markdown(f"**共 {total_items} 个型号**")
+                for item in page_items:
+                    if st.button(f"{item['model']} ¥{item['price']}{item['remark_str']} | {item['count']}条", key=f"sidebar_filter_{item['model']}_{current_page}"):
+                        safe_session_set("selected_model", item['model'])
+                        safe_session_set("scroll_to_bottom", True)
+                        SessionStateManager.safe_rerun()
+
+                # 分页控件
+                if total_pages > 1:
+                    cols = st.columns([1, 2, 1])
+                    with cols[0]:
+                        if st.button("◀ 上一页", key="filter_prev", disabled=(current_page == 1), use_container_width=True):
+                            st.session_state.sidebar_filter_page = max(1, current_page - 1)
+                            st.rerun()
+                    with cols[1]:
+                        st.markdown(f"<div style='text-align: center;'>{current_page}/{total_pages}</div>", unsafe_allow_html=True)
+                    with cols[2]:
+                        if st.button("下一页 ▶", key="filter_next", disabled=(current_page == total_pages), use_container_width=True):
+                            st.session_state.sidebar_filter_page = min(total_pages, current_page + 1)
+                            st.rerun()
+        else:
+            st.caption("设置价格区间后点击“确定查询”查看型号")
 
 # ✅ 恢复 df 和 all_models 的定义（供后续历史数据管理使用）
 df = get_clean_data()
