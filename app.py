@@ -1369,67 +1369,6 @@ with st.sidebar:
 # ✅ 恢复 df 和 all_models 的定义（供后续历史数据管理使用）
 df = get_clean_data()
 all_models = sorted(df["型号"].unique()) if not df.empty else []
-# ==================== 历史数据详细管理 ====================
-st.markdown('<div class="data-manager-card">', unsafe_allow_html=True)
-st.subheader("📋 历史数据详细管理")
-
-# 自定义 CSS：固定表格容器高度，强制显示垂直滚动条，防止闪烁
-st.markdown("""
-<style>
-    .fixed-table-container {
-        max-height: 400px;
-        overflow-y: scroll !important;
-        border: 1px solid #e4eaf7;
-        border-radius: 12px;
-        margin-bottom: 16px;
-    }
-    .fixed-table-container::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    .fixed-table-container::-webkit-scrollbar-thumb {
-        background: #c1c9d2;
-        border-radius: 4px;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-if not df.empty:
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        idx = 0
-        selected_model = safe_session_get("selected_model", "")
-        if selected_model in all_models:
-            idx = all_models.index(selected_model) + 1
-        
-        target = st.selectbox(
-            "🔍 选择或搜索型号",
-            [""] + all_models,
-            index=idx,
-            help="输入型号数字可快速搜索"
-        )
-    
-    if target:
-        safe_session_set("selected_model", target)
-        
-        model_data = df[df["型号"] == target].sort_values("时间", ascending=False)
-        if not model_data.empty:
-            cur = model_data.iloc[0]["价格"]
-            highest = model_data["价格"].max()
-            lowest = model_data["价格"].min()
-            record_count = len(model_data)
-            
-            # 四个并排指标卡片
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("当前价格", f"¥{cur}")
-            with col2:
-                st.metric("历史最高", f"¥{highest}")
-            with col3:
-                st.metric("历史最低", f"¥{lowest}")
-            with col4:
-                st.metric("记录条数", record_count)
-            
             # ========== 历史数据编辑表格 ==========
             st.markdown("---")
             st.markdown("#### 📝 历史数据编辑")
@@ -1439,25 +1378,26 @@ if not df.empty:
                     return t_str[:10]
                 return t_str
 
-            # 保留 id 和 原始时间 用于逻辑，但不在 UI 显示
-            show = model_data[["id", "原始时间", "型号", "价格", "remark"]].copy()
-            show["日期"] = show["原始时间"].apply(format_date)
-            show.rename(columns={"remark": "备注"}, inplace=True)
-            show.insert(0, "删除", False)
+            # 创建完整数据副本（包含 id 和 原始时间，用于逻辑操作）
+            full_data = model_data[["id", "原始时间", "型号", "价格", "remark"]].copy()
+            full_data["日期"] = full_data["原始时间"].apply(format_date)
+            full_data.rename(columns={"remark": "备注"}, inplace=True)
+            full_data.insert(0, "删除", False)
+
+            # 创建仅用于显示的 DataFrame，隐藏 id 和 原始时间
+            display_data = full_data[["删除", "型号", "价格", "备注", "日期"]].copy()
 
             with st.container():
                 st.markdown('<div class="fixed-table-container">', unsafe_allow_html=True)
-                ed_table = st.data_editor(
-                    show,
+                edited_display = st.data_editor(
+                    display_data,
                     column_config={
                         "删除": st.column_config.CheckboxColumn("删除", width="small"),
                         "型号": st.column_config.TextColumn("型号", width="small"),
                         "价格": st.column_config.NumberColumn("价格", width="small"),
                         "备注": st.column_config.TextColumn("备注", width="medium"),
                         "日期": st.column_config.TextColumn("日期", disabled=True, width="small"),
-                        # id 和 原始时间 不配置，并通过 column_order 隐藏
                     },
-                    column_order=["删除", "型号", "价格", "备注", "日期"],  # 仅显示这些列
                     use_container_width=True,
                     hide_index=True,
                     key=f"editor_{target}"
@@ -1465,15 +1405,22 @@ if not df.empty:
                 st.markdown('</div>', unsafe_allow_html=True)
 
             if st.button("💾 保存修改 & 删除选中", type="primary", key=f"save_{target}"):
-                del_ids = ed_table[ed_table["删除"] == True]["id"].tolist()
+                # 注意：edited_display 的行索引与 full_data 完全对齐
+                # 删除操作：根据 full_data 中的 id
+                del_mask = edited_display["删除"] == True
+                del_ids = full_data.loc[del_mask, "id"].tolist()
                 for did in del_ids:
                     delete_record(did)
                 
-                for _, row in ed_table[~ed_table["删除"]].iterrows():
-                    update_record(row["id"], {
-                        "model": str(row["型号"]).strip(),
-                        "price": int(row["价格"]),
-                        "remark": str(row["备注"]).strip()
+                # 更新操作：仅处理未被删除的行
+                update_mask = ~del_mask
+                for idx in full_data[update_mask].index:
+                    row_display = edited_display.loc[idx]
+                    row_full = full_data.loc[idx]
+                    update_record(row_full["id"], {
+                        "model": str(row_display["型号"]).strip(),
+                        "price": int(row_display["价格"]),
+                        "remark": str(row_display["备注"]).strip()
                     })
                 
                 st.success("✅ 修改已保存")
