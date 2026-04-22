@@ -1179,7 +1179,6 @@ with st.sidebar:
             # ---------- 左栏：涨价 ----------
             with col_left:
                 st.markdown("##### 📈 涨价")
-                # 每页条数下拉（独立）
                 page_size_up = st.selectbox("每页", options=[10, 20, 50], 
                                             index=[10,20,50].index(st.session_state.sidebar_alert_up_page_size),
                                             key="alert_up_page_size_select")
@@ -1203,7 +1202,6 @@ with st.sidebar:
                             safe_session_set("scroll_to_bottom", True)
                             st.rerun()
 
-                    # 分页控件
                     if total_pages > 1:
                         c1, c2, c3 = st.columns(3)
                         with c1:
@@ -1328,13 +1326,30 @@ with st.sidebar:
                 page_items = filter_result[start_idx:end_idx]
 
                 st.markdown(f"**共 {total_items} 个型号**")
-                for item in page_items:
-                    btn_label = f"{item['model']} ¥{item['price']}{item['remark_str']} | {item['count']}条"
-                    if st.button(btn_label, key=f"sidebar_filter_{item['model']}_{current_page}"):
-                        safe_session_set("selected_model", item['model'])
-                        safe_session_set("scroll_to_bottom", True)
-                        st.rerun()
 
+                # 🔥 改为左右并排显示
+                col_left, col_right = st.columns(2)
+                # 将当前页条目分配到左右两列（交替分配使高度更均衡）
+                left_items = page_items[0::2]
+                right_items = page_items[1::2]
+
+                with col_left:
+                    for item in left_items:
+                        btn_label = f"{item['model']} ¥{item['price']}{item['remark_str']}\n{item['count']}条"
+                        if st.button(btn_label, key=f"sidebar_filter_left_{item['model']}_{current_page}"):
+                            safe_session_set("selected_model", item['model'])
+                            safe_session_set("scroll_to_bottom", True)
+                            st.rerun()
+
+                with col_right:
+                    for item in right_items:
+                        btn_label = f"{item['model']} ¥{item['price']}{item['remark_str']}\n{item['count']}条"
+                        if st.button(btn_label, key=f"sidebar_filter_right_{item['model']}_{current_page}"):
+                            safe_session_set("selected_model", item['model'])
+                            safe_session_set("scroll_to_bottom", True)
+                            st.rerun()
+
+                # 分页控件（保持不变）
                 if total_pages > 1:
                     cols = st.columns(3)
                     with cols[0]:
