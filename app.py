@@ -1374,8 +1374,8 @@ st.markdown('<div class="data-manager-card">', unsafe_allow_html=True)
 st.subheader("📋 历史数据详细管理")
 
 if not df.empty:
-    col1, col2, col3 = st.columns([3, 1, 1])
-    
+    # 型号选择栏（仅保留选择框，右侧按钮已移除）
+    col1, col2 = st.columns([4, 1])  # 调整比例，右侧留空
     with col1:
         idx = 0
         selected_model = safe_session_get("selected_model", "")
@@ -1392,41 +1392,19 @@ if not df.empty:
     if target:
         safe_session_set("selected_model", target)
         
-        with col2:
-            isfav = target in get_favorites()
-            btn_txt = "⭐ 取消收藏" if isfav else "☆ 添加收藏"
-            if st.button(btn_txt, use_container_width=True):
-                toggle_favorite(target)
-                SessionStateManager.safe_rerun()
+        # 删除了收藏和查看走势按钮，直接进入数据展示
         
-        with col3:
-            if st.button("📈 查看走势", use_container_width=True):
-                safe_session_set("scroll_to_bottom", True)
-                SessionStateManager.safe_rerun()
-        
-        st.markdown("---")
-        st.markdown(f"### 💰 {target} 心理价位设置")
-        
-        rules = get_price_rules()
-        rule = rules.get(target, {"buy": 0, "sell": 0})
-        
-        cb, cs, cb2 = st.columns([2, 2, 1])
-        with cb:
-            b = st.number_input("💚 收货心理价", value=rule["buy"], min_value=0, step=10)
-        with cs:
-            s = st.number_input("❤️ 出货心理价", value=rule["sell"], min_value=0, step=10)
-        with cb2:
-            st.write("")
-            st.write("")
-            if st.button("💾 保存", use_container_width=True):
-                save_price_rule(target, b, s)
-                st.success("✅ 保存成功")
-                SessionStateManager.safe_rerun()
-
         model_data = df[df["型号"] == target].sort_values("时间", ascending=False)
         if not model_data.empty:
             cur = model_data.iloc[0]["价格"]
             
+            # 获取心理价位（仅用于计算指标，不显示设置界面）
+            rules = get_price_rules()
+            rule = rules.get(target, {"buy": 0, "sell": 0})
+            b = rule["buy"]
+            s = rule["sell"]
+            
+            # 当前价格与心理价位指标卡片（保留）
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("当前价格", f"¥{cur}")
@@ -1434,20 +1412,25 @@ if not df.empty:
                 if s > 0:
                     delta = cur - s
                     st.metric("距离出货价", f"{delta:+}元")
+                else:
+                    st.metric("距离出货价", "未设置")
             with col3:
                 if b > 0:
                     delta = cur - b
                     st.metric("距离收货价", f"{delta:+}元")
+                else:
+                    st.metric("距离收货价", "未设置")
             
+            # 心理价位提示（保留）
             tip = ""
             if s > 0 and cur >= s:
                 tip = f"❤️ 当前价 ¥{cur} 已达到出货价位，可考虑出货！"
             elif b > 0 and cur <= b:
                 tip = f"💚 当前价 ¥{cur} 已低于收货价位，可考虑收货！"
-            
             if tip:
                 st.info(tip)
 
+            # 历史数据编辑表格（保留）
             st.markdown("---")
             st.markdown("#### 📝 历史数据编辑")
             
@@ -1493,16 +1476,17 @@ if not df.empty:
                 get_clean_data.clear()
                 SessionStateManager.safe_rerun()
 
+            # 走势图（保留）
             st.markdown("---")
             st.subheader(f"📈 {target} 价格走势分析")
             
             fig = plot_enhanced_trend(model_data.sort_values("时间"), target, rules)
             st.plotly_chart(fig, use_container_width=True)
             
+            # 历史统计（保留）
             if len(model_data) >= 2:
                 st.divider()
                 col1, col2, col3, col4 = st.columns(4)
-                
                 with col1:
                     st.metric("历史最高", f"¥{model_data['价格'].max()}")
                 with col2:
@@ -1511,6 +1495,8 @@ if not df.empty:
                     st.metric("平均价格", f"¥{model_data['价格'].mean():.0f}")
                 with col4:
                     st.metric("记录条数", len(model_data))
+        else:
+            st.info("该型号暂无数据")
     else:
         st.info("👆 请在上方选择一个型号查看详情")
 else:
