@@ -1070,7 +1070,7 @@ with st.sidebar:
             # 涨价预警
             st.markdown("##### 📈 涨价预警")
             if up_list:
-                for a in up_list[:5]:  # 侧边栏空间有限，只显示前5条
+                for a in up_list[:5]:
                     star = "⭐" if a["is_fav"] else ""
                     st.write(f"{star} {a['model']} | +{a['abs_diff']}元 | 现价 ¥{a['last']}")
                 if len(up_list) > 5:
@@ -1116,7 +1116,6 @@ with st.sidebar:
 
                 if not filtered_df.empty:
                     st.markdown(f"**共 {len(filtered_df)} 个型号**")
-                    # 简单列表显示前10个
                     for _, row in filtered_df.head(10).iterrows():
                         model = row['型号']
                         price = row['价格']
@@ -1132,6 +1131,11 @@ with st.sidebar:
                     st.info("🔍 未找到符合条件的数据")
             else:
                 st.info("📭 暂无数据")
+
+# ✅ 恢复 df 和 all_models 的定义（供后续历史数据管理使用）
+df = get_clean_data()
+all_models = sorted(df["型号"].unique()) if not df.empty else []
+
 # ==================== 历史数据详细管理 ====================
 st.markdown('<div class="data-manager-card">', unsafe_allow_html=True)
 st.subheader("📋 历史数据详细管理")
