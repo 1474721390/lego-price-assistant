@@ -1034,7 +1034,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
             safe_session_set("saving_in_progress", False)
 
 # ==================== 侧边栏（价格预警 + 价格筛选，默认折叠） ====================
-# 自定义按钮样式：绿底黑字加粗
+# 自定义按钮样式：绿底黑字加粗 + 侧边栏字体缩小
 st.markdown("""
 <style>
     .stSidebar .stButton > button[kind="secondary"] {
@@ -1050,6 +1050,18 @@ st.markdown("""
         color: black !important;
         box-shadow: 0 2px 8px rgba(46,204,113,0.4);
     }
+    /* 侧边栏内文字缩小，使双栏显示更舒适 */
+    .stSidebar {
+        font-size: 0.85rem !important;
+    }
+    .stSidebar .stMarkdown p {
+        font-size: 0.85rem !important;
+        margin-bottom: 0.3rem !important;
+    }
+    .stSidebar .stSelectbox label,
+    .stSidebar .stNumberInput label {
+        font-size: 0.8rem !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1061,12 +1073,11 @@ with st.sidebar:
     if "sidebar_alert_page" not in st.session_state:
         st.session_state.sidebar_alert_page = 1
     if "sidebar_alert_page_size" not in st.session_state:
-        st.session_state.sidebar_alert_page_size = 10
+        st.session_state.sidebar_alert_page_size = 50  # 默认改为50
     if "sidebar_filter_page" not in st.session_state:
         st.session_state.sidebar_filter_page = 1
     if "sidebar_filter_page_size" not in st.session_state:
-        st.session_state.sidebar_filter_page_size = 10
-    # 存储查询结果
+        st.session_state.sidebar_filter_page_size = 50  # 默认改为50
     if "sidebar_alert_result" not in st.session_state:
         st.session_state.sidebar_alert_result = None
     if "sidebar_filter_result" not in st.session_state:
@@ -1080,14 +1091,11 @@ with st.sidebar:
         with col_max:
             max_price_alert = st.number_input("最高价格", min_value=0, value=100, step=10, key="sidebar_max_price_alert")
 
-        # 分页大小选择
-        page_size_alert = st.selectbox("每页显示", options=[10, 20, 50], index=0, key="alert_page_size_select")
+        page_size_alert = st.selectbox("每页显示", options=[10, 20, 50], index=2, key="alert_page_size_select")
 
-        # 确定查询按钮
         query_alert_clicked = st.button("🔍 确定查询", key="alert_query_btn", type="secondary", use_container_width=True)
 
         if query_alert_clicked:
-            # 执行查询
             alerts = get_alerts()
             filtered_alerts = []
             if alerts:
@@ -1099,7 +1107,6 @@ with st.sidebar:
                     else:
                         if current_price >= min_price_alert:
                             filtered_alerts.append(a)
-                # 按涨跌分组并排序
                 up_list = [a for a in filtered_alerts if a["trend"] == "上涨"]
                 down_list = [a for a in filtered_alerts if a["trend"] == "下跌"]
                 up_list.sort(key=lambda x: -x["abs_diff"])
@@ -1110,7 +1117,6 @@ with st.sidebar:
             st.session_state.sidebar_alert_page = 1
             st.session_state.sidebar_alert_page_size = page_size_alert
 
-        # 显示结果（如果有）
         alert_result = st.session_state.sidebar_alert_result
         if alert_result is not None:
             up_list = alert_result["up"]
@@ -1118,13 +1124,9 @@ with st.sidebar:
             page_size = st.session_state.sidebar_alert_page_size
             current_page = st.session_state.sidebar_alert_page
 
-            # 合并显示：先展示涨价，再展示跌价，各自独立分页？为了简单，合并分页
-            combined_list = []
-            for a in up_list:
-                combined_list.append(("📈", a))
-            for a in down_list:
-                combined_list.append(("📉", a))
-            total_items = len(combined_list)
+            # 合并所有条目用于分页计算（先涨价后跌价）
+            combined = [(a, "up") for a in up_list] + [(a, "down") for a in down_list]
+            total_items = len(combined)
             total_pages = max(1, (total_items + page_size - 1) // page_size)
 
             if total_items == 0:
@@ -1132,12 +1134,31 @@ with st.sidebar:
             else:
                 start_idx = (current_page - 1) * page_size
                 end_idx = min(start_idx + page_size, total_items)
-                page_items = combined_list[start_idx:end_idx]
+                page_items = combined[start_idx:end_idx]
 
-                # 显示当前页数据
-                for trend_icon, a in page_items:
-                    star = "⭐" if a["is_fav"] else ""
-                    st.write(f"{star} {trend_icon} {a['model']} | {a['abs_diff']:+}元 | 现价 ¥{a['last']}")
+                # 按类型分离当前页的项目
+                page_up = [item for item, typ in page_items if typ == "up"]
+                page_down = [item for item, typ in page_items if typ == "down"]
+
+                # 左右双栏显示
+                col_left, col_right = st.columns(2)
+                with col_left:
+                    st.markdown("##### 📈 涨价")
+                    if page_up:
+                        for a in page_up:
+                            star = "⭐" if a["is_fav"] else ""
+                            st.markdown(f"{star} {a['model']} +{a['abs_diff']}元<br><span style='font-size:0.75rem;'>现价 ¥{a['last']}</span>", unsafe_allow_html=True)
+                    else:
+                        st.caption("无")
+
+                with col_right:
+                    st.markdown("##### 📉 跌价")
+                    if page_down:
+                        for a in page_down:
+                            star = "⭐" if a["is_fav"] else ""
+                            st.markdown(f"{star} {a['model']} -{a['abs_diff']}元<br><span style='font-size:0.75rem;'>现价 ¥{a['last']}</span>", unsafe_allow_html=True)
+                    else:
+                        st.caption("无")
 
                 # 分页控件
                 if total_pages > 1:
@@ -1163,10 +1184,8 @@ with st.sidebar:
         with col_max2:
             max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="sidebar_max_price_filter")
 
-        # 分页大小选择
-        page_size_filter = st.selectbox("每页显示", options=[10, 20, 50], index=0, key="filter_page_size_select")
+        page_size_filter = st.selectbox("每页显示", options=[10, 20, 50], index=2, key="filter_page_size_select")
 
-        # 确定查询按钮
         query_filter_clicked = st.button("🔍 确定查询", key="filter_query_btn", type="secondary", use_container_width=True)
 
         if query_filter_clicked:
@@ -1182,7 +1201,6 @@ with st.sidebar:
                     else:
                         filtered_df = latest_df[latest_df['价格'] >= min_price]
                     filtered_df = filtered_df.sort_values('价格', ascending=False)
-                    # 转换为列表方便分页
                     items = []
                     latest_info = get_latest_history()
                     for _, row in filtered_df.iterrows():
@@ -1205,7 +1223,6 @@ with st.sidebar:
             st.session_state.sidebar_filter_page = 1
             st.session_state.sidebar_filter_page_size = page_size_filter
 
-        # 显示结果（如果有）
         filter_result = st.session_state.sidebar_filter_result
         if filter_result is not None:
             if not filter_result:
@@ -1227,7 +1244,6 @@ with st.sidebar:
                         safe_session_set("scroll_to_bottom", True)
                         SessionStateManager.safe_rerun()
 
-                # 分页控件
                 if total_pages > 1:
                     cols = st.columns([1, 2, 1])
                     with cols[0]:
@@ -1246,7 +1262,6 @@ with st.sidebar:
 # ✅ 恢复 df 和 all_models 的定义（供后续历史数据管理使用）
 df = get_clean_data()
 all_models = sorted(df["型号"].unique()) if not df.empty else []
-
 # ==================== 历史数据详细管理 ====================
 st.markdown('<div class="data-manager-card">', unsafe_allow_html=True)
 st.subheader("📋 历史数据详细管理")
