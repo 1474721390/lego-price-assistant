@@ -1034,7 +1034,7 @@ with st.expander("📝 批量录入（点击展开）", expanded=True):
             safe_session_set("saving_in_progress", False)
 
 # ==================== 侧边栏（价格预警 + 价格筛选，默认折叠） ====================
-# 自定义按钮样式：绿底黑字加粗 + 侧边栏字体缩小
+# 自定义按钮样式：绿底黑字加粗 + 自动换行 + 并排布局优化
 st.markdown("""
 <style>
     .stSidebar .stButton > button[kind="secondary"] {
@@ -1050,16 +1050,33 @@ st.markdown("""
         color: black !important;
         box-shadow: 0 2px 8px rgba(46,204,113,0.4);
     }
+    /* 侧边栏全局字体缩小 */
     .stSidebar {
-        font-size: 0.8rem !important;
+        font-size: 0.75rem !important;
+    }
+    /* 侧边栏内按钮文本自动换行 */
+    .stSidebar .stButton > button {
+        white-space: normal !important;
+        word-wrap: break-word !important;
+        text-align: left !important;
+        padding: 6px 8px !important;
+        line-height: 1.3 !important;
+        font-size: 0.75rem !important;
+        height: auto !important;
+        min-height: unset !important;
+    }
+    /* 并排布局内边距优化 */
+    .stSidebar .stColumn {
+        padding-left: 2px !important;
+        padding-right: 2px !important;
     }
     .stSidebar .stMarkdown p {
-        font-size: 0.8rem !important;
+        font-size: 0.75rem !important;
         margin-bottom: 0.2rem !important;
     }
     .stSidebar .stSelectbox label,
     .stSidebar .stNumberInput label {
-        font-size: 0.75rem !important;
+        font-size: 0.7rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1118,9 +1135,6 @@ with st.sidebar:
         with col_max:
             max_price_alert = st.number_input("最高价格", min_value=0, value=100, step=10, key="sidebar_max_price_alert")
 
-        # 每页条数选择（统一控制两栏，若需各自独立可拆开，此处保持简洁）
-        page_size_alert = st.selectbox("每页显示", options=[10, 20, 50], index=2, key="alert_page_size_select")
-
         query_alert_clicked = st.button("🔍 确定查询", key="alert_query_btn", type="secondary", use_container_width=True)
 
         if query_alert_clicked:
@@ -1146,99 +1160,109 @@ with st.sidebar:
                 down_list = [a for a in filtered_alerts if a["today_total_diff"] < 0]
                 
                 up_list.sort(key=lambda x: -x["today_total_diff"])
-                down_list.sort(key=lambda x: x["today_total_diff"])  # 负数越小（跌越多）排越前
+                down_list.sort(key=lambda x: x["today_total_diff"])
                 st.session_state.sidebar_alert_result = {"up": up_list, "down": down_list}
             else:
                 st.session_state.sidebar_alert_result = {"up": [], "down": []}
-            # 重置两栏页码为1，并更新每页条数
+            # 重置两栏页码为1
             st.session_state.sidebar_alert_up_page = 1
             st.session_state.sidebar_alert_down_page = 1
-            st.session_state.sidebar_alert_up_page_size = page_size_alert
-            st.session_state.sidebar_alert_down_page_size = page_size_alert
 
         alert_result = st.session_state.sidebar_alert_result
         if alert_result is not None:
             up_list = alert_result["up"]
             down_list = alert_result["down"]
 
+            # 左右并排显示
+            col_left, col_right = st.columns(2)
+
             # ---------- 左栏：涨价 ----------
-            st.markdown("##### 📈 涨价")
-            if up_list:
-                total_up = len(up_list)
-                page_size_up = st.session_state.sidebar_alert_up_page_size
-                current_page_up = st.session_state.sidebar_alert_up_page
-                total_pages_up = max(1, (total_up + page_size_up - 1) // page_size_up)
+            with col_left:
+                st.markdown("##### 📈 涨价")
+                # 每页条数下拉（独立）
+                page_size_up = st.selectbox("每页", options=[10, 20, 50], 
+                                            index=[10,20,50].index(st.session_state.sidebar_alert_up_page_size),
+                                            key="alert_up_page_size_select")
+                st.session_state.sidebar_alert_up_page_size = page_size_up
 
-                start_idx = (current_page_up - 1) * page_size_up
-                end_idx = min(start_idx + page_size_up, total_up)
-                page_items = up_list[start_idx:end_idx]
+                if up_list:
+                    total_up = len(up_list)
+                    current_page = st.session_state.sidebar_alert_up_page
+                    total_pages = max(1, (total_up + page_size_up - 1) // page_size_up)
 
-                for a in page_items:
-                    star = "⭐" if a["is_fav"] else ""
-                    changes_str = ",".join([f"+{c}" if c>0 else str(c) for c in a["today_changes"]])
-                    content = f"{star} **{a['model']}**  \n`现¥{a['last']}  |  +{a['today_total_diff']}元`  \n当天: {changes_str}"
-                    if st.button(content, key=f"alert_up_{a['model']}_{current_page_up}"):
-                        safe_session_set("selected_model", a["model"])
-                        safe_session_set("scroll_to_bottom", True)
-                        st.rerun()
+                    start_idx = (current_page - 1) * page_size_up
+                    end_idx = min(start_idx + page_size_up, total_up)
+                    page_items = up_list[start_idx:end_idx]
 
-                # 分页控件（仅当总页数>1）
-                if total_pages_up > 1:
-                    cols = st.columns([1, 2, 1])
-                    with cols[0]:
-                        if st.button("◀", key="alert_up_prev", disabled=(current_page_up == 1), use_container_width=True):
-                            st.session_state.sidebar_alert_up_page = max(1, current_page_up - 1)
+                    for a in page_items:
+                        star = "⭐" if a["is_fav"] else ""
+                        changes_str = ",".join([f"+{c}" if c>0 else str(c) for c in a["today_changes"]])
+                        content = f"{star} {a['model']}\n现¥{a['last']} | +{a['today_total_diff']}元\n当天:{changes_str}"
+                        if st.button(content, key=f"alert_up_{a['model']}_{current_page}"):
+                            safe_session_set("selected_model", a["model"])
+                            safe_session_set("scroll_to_bottom", True)
                             st.rerun()
-                    with cols[1]:
-                        st.markdown(f"<div style='text-align: center; font-size:0.75rem;'>{current_page_up}/{total_pages_up}</div>", unsafe_allow_html=True)
-                    with cols[2]:
-                        if st.button("▶", key="alert_up_next", disabled=(current_page_up == total_pages_up), use_container_width=True):
-                            st.session_state.sidebar_alert_up_page = min(total_pages_up, current_page_up + 1)
-                            st.rerun()
+
+                    # 分页控件
+                    if total_pages > 1:
+                        c1, c2, c3 = st.columns([1,2,1])
+                        with c1:
+                            if st.button("◀", key="alert_up_prev", disabled=(current_page==1), use_container_width=True):
+                                st.session_state.sidebar_alert_up_page = max(1, current_page-1)
+                                st.rerun()
+                        with c2:
+                            st.markdown(f"<div style='text-align:center;font-size:0.7rem;'>{current_page}/{total_pages}</div>", unsafe_allow_html=True)
+                        with c3:
+                            if st.button("▶", key="alert_up_next", disabled=(current_page==total_pages), use_container_width=True):
+                                st.session_state.sidebar_alert_up_page = min(total_pages, current_page+1)
+                                st.rerun()
+                    else:
+                        st.caption(f"共 {total_up} 条")
                 else:
-                    st.caption(f"共 {total_up} 条")
-            else:
-                st.caption("无")
-
-            st.divider()
+                    st.caption("无")
 
             # ---------- 右栏：跌价 ----------
-            st.markdown("##### 📉 跌价")
-            if down_list:
-                total_down = len(down_list)
-                page_size_down = st.session_state.sidebar_alert_down_page_size
-                current_page_down = st.session_state.sidebar_alert_down_page
-                total_pages_down = max(1, (total_down + page_size_down - 1) // page_size_down)
+            with col_right:
+                st.markdown("##### 📉 跌价")
+                page_size_down = st.selectbox("每页", options=[10, 20, 50],
+                                              index=[10,20,50].index(st.session_state.sidebar_alert_down_page_size),
+                                              key="alert_down_page_size_select")
+                st.session_state.sidebar_alert_down_page_size = page_size_down
 
-                start_idx = (current_page_down - 1) * page_size_down
-                end_idx = min(start_idx + page_size_down, total_down)
-                page_items = down_list[start_idx:end_idx]
+                if down_list:
+                    total_down = len(down_list)
+                    current_page = st.session_state.sidebar_alert_down_page
+                    total_pages = max(1, (total_down + page_size_down - 1) // page_size_down)
 
-                for a in page_items:
-                    star = "⭐" if a["is_fav"] else ""
-                    changes_str = ",".join([f"+{c}" if c>0 else str(c) for c in a["today_changes"]])
-                    content = f"{star} **{a['model']}**  \n`现¥{a['last']}  |  {a['today_total_diff']}元`  \n当天: {changes_str}"
-                    if st.button(content, key=f"alert_down_{a['model']}_{current_page_down}"):
-                        safe_session_set("selected_model", a["model"])
-                        safe_session_set("scroll_to_bottom", True)
-                        st.rerun()
+                    start_idx = (current_page - 1) * page_size_down
+                    end_idx = min(start_idx + page_size_down, total_down)
+                    page_items = down_list[start_idx:end_idx]
 
-                if total_pages_down > 1:
-                    cols = st.columns([1, 2, 1])
-                    with cols[0]:
-                        if st.button("◀", key="alert_down_prev", disabled=(current_page_down == 1), use_container_width=True):
-                            st.session_state.sidebar_alert_down_page = max(1, current_page_down - 1)
+                    for a in page_items:
+                        star = "⭐" if a["is_fav"] else ""
+                        changes_str = ",".join([f"+{c}" if c>0 else str(c) for c in a["today_changes"]])
+                        content = f"{star} {a['model']}\n现¥{a['last']} | {a['today_total_diff']}元\n当天:{changes_str}"
+                        if st.button(content, key=f"alert_down_{a['model']}_{current_page}"):
+                            safe_session_set("selected_model", a["model"])
+                            safe_session_set("scroll_to_bottom", True)
                             st.rerun()
-                    with cols[1]:
-                        st.markdown(f"<div style='text-align: center; font-size:0.75rem;'>{current_page_down}/{total_pages_down}</div>", unsafe_allow_html=True)
-                    with cols[2]:
-                        if st.button("▶", key="alert_down_next", disabled=(current_page_down == total_pages_down), use_container_width=True):
-                            st.session_state.sidebar_alert_down_page = min(total_pages_down, current_page_down + 1)
-                            st.rerun()
+
+                    if total_pages > 1:
+                        c1, c2, c3 = st.columns([1,2,1])
+                        with c1:
+                            if st.button("◀", key="alert_down_prev", disabled=(current_page==1), use_container_width=True):
+                                st.session_state.sidebar_alert_down_page = max(1, current_page-1)
+                                st.rerun()
+                        with c2:
+                            st.markdown(f"<div style='text-align:center;font-size:0.7rem;'>{current_page}/{total_pages}</div>", unsafe_allow_html=True)
+                        with c3:
+                            if st.button("▶", key="alert_down_next", disabled=(current_page==total_pages), use_container_width=True):
+                                st.session_state.sidebar_alert_down_page = min(total_pages, current_page+1)
+                                st.rerun()
+                    else:
+                        st.caption(f"共 {total_down} 条")
                 else:
-                    st.caption(f"共 {total_down} 条")
-            else:
-                st.caption("无")
+                    st.caption("无")
         else:
             st.caption("设置价格区间后点击“确定查询”查看预警")
 
