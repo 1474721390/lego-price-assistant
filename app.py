@@ -1374,8 +1374,8 @@ st.markdown('<div class="data-manager-card">', unsafe_allow_html=True)
 st.subheader("📋 历史数据详细管理")
 
 if not df.empty:
-    # 型号选择栏（仅保留选择框，右侧按钮已移除）
-    col1, col2 = st.columns([4, 1])  # 调整比例，右侧留空
+    # 型号选择栏（仅保留选择框）
+    col1, col2 = st.columns([4, 1])
     with col1:
         idx = 0
         selected_model = safe_session_get("selected_model", "")
@@ -1392,36 +1392,22 @@ if not df.empty:
     if target:
         safe_session_set("selected_model", target)
         
-        # 删除了收藏和查看走势按钮，直接进入数据展示
-        
         model_data = df[df["型号"] == target].sort_values("时间", ascending=False)
         if not model_data.empty:
             cur = model_data.iloc[0]["价格"]
             
-            # 获取心理价位（仅用于计算指标，不显示设置界面）
+            # 仅显示当前价格（单卡居中或左对齐）
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.metric("当前价格", f"¥{cur}")
+            
+            # 获取心理价位（供走势图参考线使用，不显示）
             rules = get_price_rules()
             rule = rules.get(target, {"buy": 0, "sell": 0})
             b = rule["buy"]
             s = rule["sell"]
             
-            # 当前价格与心理价位指标卡片（保留）
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("当前价格", f"¥{cur}")
-            with col2:
-                if s > 0:
-                    delta = cur - s
-                    st.metric("距离出货价", f"{delta:+}元")
-                else:
-                    st.metric("距离出货价", "未设置")
-            with col3:
-                if b > 0:
-                    delta = cur - b
-                    st.metric("距离收货价", f"{delta:+}元")
-                else:
-                    st.metric("距离收货价", "未设置")
-            
-            # 心理价位提示（保留）
+            # 心理价位提示（保留，如果价格触及心理价位仍会提示）
             tip = ""
             if s > 0 and cur >= s:
                 tip = f"❤️ 当前价 ¥{cur} 已达到出货价位，可考虑出货！"
@@ -1430,7 +1416,7 @@ if not df.empty:
             if tip:
                 st.info(tip)
 
-            # 历史数据编辑表格（保留）
+            # 历史数据编辑表格
             st.markdown("---")
             st.markdown("#### 📝 历史数据编辑")
             
@@ -1476,14 +1462,14 @@ if not df.empty:
                 get_clean_data.clear()
                 SessionStateManager.safe_rerun()
 
-            # 走势图（保留）
+            # 走势图
             st.markdown("---")
             st.subheader(f"📈 {target} 价格走势分析")
             
             fig = plot_enhanced_trend(model_data.sort_values("时间"), target, rules)
             st.plotly_chart(fig, use_container_width=True)
             
-            # 历史统计（保留）
+            # 历史统计
             if len(model_data) >= 2:
                 st.divider()
                 col1, col2, col3, col4 = st.columns(4)
