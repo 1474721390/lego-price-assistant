@@ -1373,6 +1373,29 @@ all_models = sorted(df["型号"].unique()) if not df.empty else []
 st.markdown('<div class="data-manager-card">', unsafe_allow_html=True)
 st.subheader("📋 历史数据详细管理")
 
+# 自定义 CSS：固定表格容器高度，强制显示垂直滚动条，防止闪烁
+st.markdown("""
+<style>
+    /* 固定表格容器高度，并始终显示滚动条（即使内容未溢出） */
+    .fixed-table-container {
+        max-height: 400px;
+        overflow-y: scroll !important;
+        border: 1px solid #e4eaf7;
+        border-radius: 12px;
+        margin-bottom: 16px;
+    }
+    /* 隐藏横向滚动条（可选，若表格列过多仍会显示） */
+    .fixed-table-container::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    .fixed-table-container::-webkit-scrollbar-thumb {
+        background: #c1c9d2;
+        border-radius: 4px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 if not df.empty:
     col1, col2 = st.columns([4, 1])
     with col1:
@@ -1409,14 +1432,14 @@ if not df.empty:
             with col4:
                 st.metric("记录条数", record_count)
             
-            # 走势图（保留心理价位参考线）
+            # 走势图
             st.markdown("---")
             st.subheader(f"📈 {target} 价格走势分析")
             rules = get_price_rules()
             fig = plot_enhanced_trend(model_data.sort_values("时间"), target, rules)
             st.plotly_chart(fig, use_container_width=True)
             
-            # 历史数据编辑表格
+            # 历史数据编辑表格（固定高度容器防止滚动条闪烁）
             st.markdown("---")
             st.markdown("#### 📝 历史数据编辑")
             
@@ -1430,21 +1453,25 @@ if not df.empty:
             show.rename(columns={"remark": "备注"}, inplace=True)
             show.insert(0, "删除", False)
 
-            ed_table = st.data_editor(
-                show,
-                column_config={
-                    "删除": st.column_config.CheckboxColumn("删除", width="small"),
-                    "型号": st.column_config.TextColumn("型号", width="small"),
-                    "价格": st.column_config.NumberColumn("价格", width="small"),
-                    "备注": st.column_config.TextColumn("备注", width="medium"),
-                    "日期": st.column_config.TextColumn("日期", disabled=True, width="small"),
-                    "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
-                    "原始时间": st.column_config.TextColumn("原始时间", disabled=True, width="medium"),
-                },
-                use_container_width=True,
-                hide_index=True,
-                key=f"editor_{target}"
-            )
+            # 使用自定义容器包裹 data_editor
+            with st.container():
+                st.markdown('<div class="fixed-table-container">', unsafe_allow_html=True)
+                ed_table = st.data_editor(
+                    show,
+                    column_config={
+                        "删除": st.column_config.CheckboxColumn("删除", width="small"),
+                        "型号": st.column_config.TextColumn("型号", width="small"),
+                        "价格": st.column_config.NumberColumn("价格", width="small"),
+                        "备注": st.column_config.TextColumn("备注", width="medium"),
+                        "日期": st.column_config.TextColumn("日期", disabled=True, width="small"),
+                        "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                        "原始时间": st.column_config.TextColumn("原始时间", disabled=True, width="medium"),
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                    key=f"editor_{target}"
+                )
+                st.markdown('</div>', unsafe_allow_html=True)
 
             if st.button("💾 保存修改 & 删除选中", type="primary", key=f"save_{target}"):
                 del_ids = ed_table[ed_table["删除"] == True]["id"].tolist()
