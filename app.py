@@ -1374,7 +1374,7 @@ all_models = sorted(df["型号"].unique()) if not df.empty else []
 st.markdown('<div class="data-manager-card">', unsafe_allow_html=True)
 st.subheader("📋 历史数据详细管理")
 
-# 自定义 CSS：固定表格容器高度，强制显示垂直滚动条，防止闪烁
+# 自定义 CSS：固定表格容器高度，强制显示垂直滚动条，防止闪烁，同时禁止单元格内容换行
 st.markdown("""
 <style>
     .fixed-table-container {
@@ -1383,6 +1383,7 @@ st.markdown("""
         border: 1px solid #e4eaf7;
         border-radius: 12px;
         margin-bottom: 16px;
+        overflow-x: auto !important;   /* 允许横向滚动 */
     }
     .fixed-table-container::-webkit-scrollbar {
         width: 8px;
@@ -1391,6 +1392,16 @@ st.markdown("""
     .fixed-table-container::-webkit-scrollbar-thumb {
         background: #c1c9d2;
         border-radius: 4px;
+    }
+    /* 强制表格单元格内容不换行，列宽自动适应 */
+    .fixed-table-container table td,
+    .fixed-table-container table th {
+        white-space: nowrap !important;
+    }
+    /* 让表格宽度根据内容自动扩展 */
+    .fixed-table-container table {
+        width: max-content !important;
+        min-width: 100% !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1440,24 +1451,22 @@ if not df.empty:
                 if not t_str:
                     return ""
                 try:
-                    # 处理带时区的 ISO 字符串，如 "2026-04-23T13:38:00+00:00"
                     dt = datetime.fromisoformat(t_str.replace('Z', '+00:00'))
-                    return dt.strftime('%y-%m-%d %H:%M')   # 例如：26-04-23 13:38
+                    return dt.strftime('%y-%m-%d %H:%M')
                 except:
-                    # 回退方案：直接截取字符串
                     if len(t_str) >= 16:
-                        date_part = t_str[2:10]   # "26-04-23"
-                        time_part = t_str[11:16]  # "13:38"
+                        date_part = t_str[2:10]
+                        time_part = t_str[11:16]
                         return f"{date_part} {time_part}"
                     return t_str[:16] if len(t_str) >= 16 else t_str
 
             # 准备显示数据（列顺序：删除、型号、价格、备注、日期、id、原始时间）
             show = model_data[["id", "原始时间", "型号", "价格", "remark"]].copy()
-            show["日期"] = show["原始时间"].apply(format_datetime)   # 使用新格式化函数
+            show["日期"] = show["原始时间"].apply(format_datetime)
             show.rename(columns={"remark": "备注"}, inplace=True)
             show.insert(0, "删除", False)
 
-            # 调整列顺序以匹配显示需求
+            # 调整列顺序
             show = show[["删除", "型号", "价格", "备注", "日期", "id", "原始时间"]]
 
             with st.container():
@@ -1469,9 +1478,9 @@ if not df.empty:
                         "型号": st.column_config.TextColumn("型号", width="small"),
                         "价格": st.column_config.NumberColumn("价格", width="small", format="%d"),
                         "备注": st.column_config.TextColumn("备注", width="medium"),
-                        "日期": st.column_config.TextColumn("日期", disabled=True, width="small"),
-                        "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
-                        "原始时间": st.column_config.TextColumn("原始时间", disabled=True, width="medium"),
+                        "日期": st.column_config.TextColumn("日期", disabled=True, width=None),  # 自动宽度
+                        "id": st.column_config.NumberColumn("ID", disabled=True, width=None),
+                        "原始时间": st.column_config.TextColumn("原始时间", disabled=True, width=None),
                     },
                     column_order=["删除", "型号", "价格", "备注", "日期", "id", "原始时间"],
                     use_container_width=True,
@@ -1481,13 +1490,13 @@ if not df.empty:
                 st.markdown('</div>', unsafe_allow_html=True)
 
             if st.button("💾 保存修改 & 删除选中", type="primary", key=f"save_{target}"):
-                # 删除操作：根据 id 列删除
+                # 删除操作
                 del_mask = edited_display["删除"] == True
                 del_ids = edited_display.loc[del_mask, "id"].tolist()
                 for did in del_ids:
                     delete_record(did)
                 
-                # 更新操作：仅处理未被删除的行
+                # 更新操作
                 update_mask = ~del_mask
                 for _, row in edited_display[update_mask].iterrows():
                     update_record(row["id"], {
