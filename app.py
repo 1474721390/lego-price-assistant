@@ -1435,23 +1435,25 @@ if not df.empty:
             st.markdown("---")
             st.markdown("#### 📝 历史数据编辑")
             
-                        def format_datetime(t_str):
-                """将 ISO 时间字符串格式化为 YY-MM-DD HH:MM"""
+            def format_datetime(t_str):
+                """将 ISO 时间字符串格式化为 YY-MM-DD HH:MM（两位年份，24小时制，精确到分钟）"""
                 if not t_str:
                     return ""
                 try:
+                    # 处理带时区的 ISO 字符串，如 "2026-04-23T13:38:00+00:00"
                     dt = datetime.fromisoformat(t_str.replace('Z', '+00:00'))
-                    return dt.strftime('%y-%m-%d %H:%M')
+                    return dt.strftime('%y-%m-%d %H:%M')   # 例如：26-04-23 13:38
                 except:
+                    # 回退方案：直接截取字符串
                     if len(t_str) >= 16:
-                        date_part = t_str[2:10]  # "26-04-23"
+                        date_part = t_str[2:10]   # "26-04-23"
                         time_part = t_str[11:16]  # "13:38"
                         return f"{date_part} {time_part}"
                     return t_str[:16] if len(t_str) >= 16 else t_str
 
             # 准备显示数据（列顺序：删除、型号、价格、备注、日期、id、原始时间）
             show = model_data[["id", "原始时间", "型号", "价格", "remark"]].copy()
-            show["日期"] = show["原始时间"].apply(format_datetime)
+            show["日期"] = show["原始时间"].apply(format_datetime)   # 使用新格式化函数
             show.rename(columns={"remark": "备注"}, inplace=True)
             show.insert(0, "删除", False)
 
