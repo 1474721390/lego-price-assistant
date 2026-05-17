@@ -1266,7 +1266,7 @@ with st.sidebar:
         else:
             st.caption("设置价格区间后点击“确定查询”查看预警")
 
-       # ---------- 价格筛选折叠块（左右并排显示） ----------
+     # ---------- 价格筛选折叠块（左右并排显示）----------
     with st.expander("🔍 价格筛选", expanded=False):
         col_min2, col_max2 = st.columns(2)
         with col_min2:
@@ -1349,16 +1349,15 @@ with st.sidebar:
 
                 st.markdown(f"**共 {total_items} 个型号**")
 
-                # 将当前页项目分为左右两栏（左栏比右栏多一个，如果总数奇数）
-                mid = (len(page_items) + 1) // 2
-                left_items = page_items[:mid]
-                right_items = page_items[mid:]
+                # 🔥 Z字形分配：索引0,2,4...放左栏；索引1,3,5...放右栏
+                left_items = [item for i, item in enumerate(page_items) if i % 2 == 0]
+                right_items = [item for i, item in enumerate(page_items) if i % 2 == 1]
 
                 col_left2, col_right2 = st.columns(2)
                 with col_left2:
                     for item in left_items:
                         btn_label = f"{item['model']} ¥{item['price']}{item['remark_str']} | {item['count']}条".replace(" ", "\u00A0")
-                        if st.button(btn_label, key=f"sidebar_filter_{item['model']}_{current_page}"):
+                        if st.button(btn_label, key=f"sidebar_filter_{item['model']}_{current_page}_l"):
                             safe_session_set("selected_model", item['model'])
                             safe_session_set("scroll_to_bottom", True)
                             st.rerun()
