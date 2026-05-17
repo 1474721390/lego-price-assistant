@@ -1266,13 +1266,22 @@ with st.sidebar:
         else:
             st.caption("设置价格区间后点击“确定查询”查看预警")
 
-    # ---------- 价格筛选折叠块（左右并排显示） ----------
+       # ---------- 价格筛选折叠块（左右并排显示） ----------
     with st.expander("🔍 价格筛选", expanded=False):
         col_min2, col_max2 = st.columns(2)
         with col_min2:
             min_price = st.number_input("最低价格", min_value=0, value=0, step=10, key="sidebar_min_price_filter")
         with col_max2:
             max_price = st.number_input("最高价格", min_value=0, value=100, step=10, key="sidebar_max_price_filter")
+
+        # 新增排序方式选择
+        sort_option = st.radio(
+            "排序方式",
+            ["价格排序", "热销排序"],
+            horizontal=True,
+            index=0,
+            key="sidebar_sort_option"
+        )
 
         page_size_filter = st.selectbox("每页显示", options=[10, 20, 50], index=2, key="filter_page_size_select")
 
@@ -1290,7 +1299,18 @@ with st.sidebar:
                         filtered_df = latest_df[(latest_df['价格'] >= min_price) & (latest_df['价格'] <= max_price)]
                     else:
                         filtered_df = latest_df[latest_df['价格'] >= min_price]
-                    filtered_df = filtered_df.sort_values('价格', ascending=False)
+
+                    # 计算每个型号的历史总记录数
+                    model_counts = df_clean['型号'].value_counts().to_dict()
+                    filtered_df = filtered_df.copy()
+                    filtered_df['count'] = filtered_df['型号'].map(model_counts)
+
+                    # 根据排序选项排序
+                    if sort_option == "价格排序":
+                        filtered_df = filtered_df.sort_values('价格', ascending=False)
+                    else:  # 热销排序
+                        filtered_df = filtered_df.sort_values('count', ascending=False)
+
                     items = []
                     latest_info = get_latest_history()
                     for _, row in filtered_df.iterrows():
@@ -1298,7 +1318,7 @@ with st.sidebar:
                         price = row['价格']
                         remark = row.get('remark', '')
                         last_time = latest_info.get(model, {}).get('last_time', '无时间')
-                        count = len(df_clean[df_clean['型号'] == model])
+                        count = row['count']
                         remark_str = f" | {remark}" if remark else ""
                         items.append({
                             "model": model,
@@ -1337,7 +1357,6 @@ with st.sidebar:
                 col_left2, col_right2 = st.columns(2)
                 with col_left2:
                     for item in left_items:
-                        # 防止数字+单位被拆分，用 &nbsp; 替换空格
                         btn_label = f"{item['model']} ¥{item['price']}{item['remark_str']} | {item['count']}条".replace(" ", "\u00A0")
                         if st.button(btn_label, key=f"sidebar_filter_{item['model']}_{current_page}"):
                             safe_session_set("selected_model", item['model'])
